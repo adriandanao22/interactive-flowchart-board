@@ -44,12 +44,12 @@ export function ChartBar({
   }
 
   return (
-    <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-surface-muted px-5 py-1.5">
+    <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-surface-muted px-3 py-1.5 md:px-5">
       <span className="text-[11px] font-semibold tracking-wider text-muted-fg uppercase">
         Editing
       </span>
 
-      <div className="flex flex-wrap items-center gap-1">
+      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto md:flex-wrap">
         <ChartTab
           label={doc.main.title || "Main"}
           active={editingKey === null}
@@ -85,7 +85,7 @@ export function ChartBar({
             type="button"
             onClick={() => setAdding(true)}
             title="Add a routine"
-            className="rounded-md border border-dashed border-line-strong px-2 py-0.5 text-xs font-medium text-muted-fg hover:bg-surface hover:text-foreground"
+            className="min-h-7 shrink-0 rounded-md border border-dashed border-line-strong px-2 py-0.5 text-xs font-medium text-muted-fg hover:bg-surface hover:text-foreground"
           >
             + Routine
           </button>
@@ -148,7 +148,7 @@ function ChartTab({
       type="button"
       onClick={onClick}
       aria-current={active ? "true" : undefined}
-      className={`max-w-48 truncate rounded-md px-2 py-0.5 text-xs font-medium ${
+      className={`min-h-7 max-w-48 shrink-0 truncate rounded-md px-2 py-0.5 text-xs font-medium ${
         active
           ? "bg-accent text-accent-fg"
           : "border border-line bg-surface hover:bg-surface-muted"

@@ -85,8 +85,8 @@ export function RoutinePanel({ chartKey, spec, run, calledFrom, onEdit, onClose 
   }, [laid.edges, run, chartKey, active]);
 
   return (
-    <div className="pointer-events-none absolute inset-0 z-20 flex items-end justify-end p-4">
-      <div className="pointer-events-auto flex h-[62%] w-[58%] min-w-80 flex-col overflow-hidden rounded-xl border-2 border-line-strong bg-surface shadow-2xl">
+    <div className="pointer-events-none absolute inset-0 z-20 flex items-end justify-center p-2 pb-13 md:justify-end md:p-4">
+      <div className="pointer-events-auto flex h-[50%] w-full flex-col md:h-[62%] md:w-[58%] md:min-w-80 overflow-hidden rounded-xl border-2 border-line-strong bg-surface shadow-2xl">
         <div className="flex shrink-0 items-center gap-2 border-b border-line px-3.5 py-2">
           <div className="min-w-0 flex-1">
             <p className="truncate text-xs font-semibold">

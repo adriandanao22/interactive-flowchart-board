@@ -92,6 +92,29 @@ canvas and shows a call stack; the trace marks calls with `⤵`, returns with
 
 *Copy JSON* puts the underlying graph on the clipboard.
 
+## On a phone
+
+Below Tailwind's `md` breakpoint the same app reflows rather than losing
+features. The sidebar becomes a sheet along the bottom — collapsed to one bar,
+tabbed into *Inspect* / *Run* / *Chart* when opened, because scrolling past
+three panels to reach the fourth on a phone is miserable. The shape palette
+turns into a scrolling row along the top, and the minimap and zoom controls
+step aside for pinch and drag.
+
+Two behavioural differences, not just layout:
+
+- **The canvas always pans on touch,** so the select/pan toggle is a desktop
+  control. In its place the palette offers **Select many**: with it on, tapping
+  shapes adds them to the selection rather than replacing it, and the same
+  count-and-delete toolbar appears. A drag marquee is not an option on touch —
+  React Flow skips it for touch pointers, and forcing it on would disable
+  panning and pinch-zoom outright.
+- **The sheet opens itself** when the run needs an answer — a branch choice or
+  an input prompt is useless behind a closed panel.
+
+Height is `dvh` rather than a percentage so mobile browser chrome does not clip
+the board, and the sheet pads for the home indicator on notched phones.
+
 ## How it fits together
 
 Everything hangs off one intermediate representation in
@@ -110,6 +133,7 @@ importer just has to emit the same shape.
 | [lib/expr.ts](lib/expr.ts) | A tiny expression language: tokeniser, parser, evaluator |
 | [lib/supabase.ts](lib/supabase.ts) | Browser client, and whether the project is configured at all |
 | [lib/storage.ts](lib/storage.ts) | Loading and saving the user's one chart |
+| [lib/useMediaQuery.ts](lib/useMediaQuery.ts) | Breakpoint and pointer-type checks, via `useSyncExternalStore` |
 | [lib/parse.ts](lib/parse.ts) | Pasted text → `FlowchartDocument`, with repair and validation |
 | [app/components/Board.tsx](app/components/Board.tsx) | Wires state, editing, run controls, and import together |
 | [app/components/ShapeOutline.tsx](app/components/ShapeOutline.tsx) | The SVG geometry for all seven shapes, at any size |
@@ -119,6 +143,7 @@ importer just has to emit the same shape.
 | [app/components/Console.tsx](app/components/Console.tsx) | Program output, docked along the bottom of the canvas |
 | [app/components/ChartBar.tsx](app/components/ChartBar.tsx) | Chart switcher and routine management |
 | [app/components/AccountPanel.tsx](app/components/AccountPanel.tsx) | Sign in / sign up, and the autosave indicator |
+| [app/components/MobileSheet.tsx](app/components/MobileSheet.tsx) | The sidebar reflowed into a tabbed bottom sheet on phones |
 
 ## Supported shapes
 

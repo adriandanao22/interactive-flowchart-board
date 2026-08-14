@@ -43,6 +43,7 @@ import {
   type HandleId,
 } from "@/lib/layout";
 import { looksLikeSpec, parseDocument } from "@/lib/parse";
+import { useIsMobile } from "@/lib/useMediaQuery";
 import { loadChart, saveChart } from "@/lib/storage";
 import { getSupabase, supabaseConfigured } from "@/lib/supabase";
 import {
@@ -64,6 +65,7 @@ import { ChartBar } from "./ChartBar";
 import { Console } from "./Console";
 import { ImportPanel } from "./ImportPanel";
 import { Inspector, type Selection } from "./Inspector";
+import { MobileSheet, type SheetTab } from "./MobileSheet";
 import { JsonImportDialog } from "./JsonImportDialog";
 import { RoutinePanel } from "./RoutinePanel";
 import { RunPanel } from "./RunPanel";
@@ -112,6 +114,13 @@ function BoardInner() {
    * always set together.
    */
   const [tool, setTool] = useState<"select" | "pan">("select");
+  /**
+   * Touch multi-select. React Flow has already collapsed the selection to the
+   * tapped node by the time `onNodeClick` runs, so the intended set has to be
+   * tracked here rather than read back off the nodes.
+   */
+  const [multiSelect, setMultiSelect] = useState(false);
+  const tapSelection = useRef<Set<string>>(new Set());
 
   const [run, setRun] = useState<RunState>(INITIAL_RUN);
   const [playing, setPlaying] = useState(false);
@@ -138,8 +147,59 @@ function BoardInner() {
 
   const { fitView, setCenter, getNode, screenToFlowPosition, deleteElements } = useReactFlow();
   const canvasRef = useRef<HTMLDivElement>(null);
+  const isMobile = useIsMobile();
+  // Touch has no middle or right button, so a marquee tool would strand the
+  // user with no way to pan. Phones get panning; selection is by tapping.
+  const effectiveTool = isMobile ? "pan" : tool;
+
+  /** Turn tap-to-add on or off, seeding from whatever is already selected. */
+  const changeMultiSelect = useCallback(
+    (value: boolean) => {
+      setMultiSelect(value);
+      if (value) tapSelection.current = new Set(nodes.filter((n) => n.selected).map((n) => n.id));
+      else tapSelection.current.clear();
+    },
+    [nodes],
+  );
+
+  /** Add or remove one shape from the tap-built selection. */
+  const toggleTapSelection = useCallback(
+    (id: string) => {
+      const next = new Set(tapSelection.current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      tapSelection.current = next;
+      setNodes((prev) => prev.map((n) => ({ ...n, selected: next.has(n.id) })));
+    },
+    [setNodes],
+  );
 
   // ---- spec → board ---------------------------------------------------
+
+  /**
+   * Frame a freshly laid-out chart.
+   *
+   * Fitting the whole thing is right on a desktop, but a tall chart squeezed
+   * into a phone leaves every shape too small to read. There, open at the
+   * start terminator at a legible zoom and let the reader scroll on.
+   */
+  const frameChart = useCallback(
+    (laid: BoardNode[]) => {
+      requestAnimationFrame(() => {
+        const entry = laid.find((n) => n.data.kind === "start") ?? laid[0];
+        if (!isMobile || !entry) {
+          void fitView({ padding: 0.16, duration: 320 });
+          return;
+        }
+        void setCenter(
+          entry.position.x + (entry.width ?? 0) / 2,
+          entry.position.y + (entry.height ?? 0) / 2,
+          { zoom: 0.75, duration: 320 },
+        );
+      });
+    },
+    [fitView, setCenter, isMobile],
+  );
 
   /** Replace the whole document: re-layout, reset the run, refit the viewport. */
   const applyDoc = useCallback(
@@ -152,12 +212,9 @@ function BoardInner() {
       setEdges(laid.edges);
       setRun(INITIAL_RUN);
       setPlaying(false);
-      // Wait for the new nodes to be measured before framing them.
-      requestAnimationFrame(() => {
-        void fitView({ padding: 0.16, duration: 320 });
-      });
+      frameChart(laid.nodes);
     },
-    [fitView, setEdges, setNodes],
+    [frameChart, setEdges, setNodes],
   );
 
   /**
@@ -172,11 +229,10 @@ function BoardInner() {
       setEditingKey(key);
       setNodes(laid.nodes);
       setEdges(laid.edges);
-      requestAnimationFrame(() => {
-        void fitView({ padding: 0.16, duration: 320 });
-      });
+      tapSelection.current.clear();
+      frameChart(laid.nodes);
     },
-    [doc, fitView, setEdges, setNodes],
+    [doc, frameChart, setEdges, setNodes],
   );
 
   /** Re-run the layout over the current spec, discarding manual positions. */
@@ -184,10 +240,8 @@ function BoardInner() {
     const laid = layoutSpec(spec);
     setNodes(laid.nodes);
     setEdges(laid.edges);
-    requestAnimationFrame(() => {
-      void fitView({ padding: 0.16, duration: 320 });
-    });
-  }, [fitView, setEdges, setNodes, spec]);
+    frameChart(laid.nodes);
+  }, [frameChart, setEdges, setNodes, spec]);
 
   // ---- editing --------------------------------------------------------
 
@@ -529,6 +583,16 @@ function BoardInner() {
     return () => window.removeEventListener("paste", onPaste);
   }, [importDoc]);
 
+  // The `fitView` prop frames desktop-style on mount; once the media query
+  // resolves, a phone needs the readable framing instead.
+  useEffect(() => {
+    if (!isMobile) return;
+    frameChart(nodes);
+    // Only when the breakpoint changes — re-framing on every node edit would
+    // yank the canvas out from under the user.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMobile]);
+
   // ---- account and autosave --------------------------------------------
 
   useEffect(() => {
@@ -712,6 +776,113 @@ function BoardInner() {
       ? (doc.main.nodes.find((n) => n.id === activeFrame.nodeId)?.label ?? null)
       : null;
 
+  /**
+   * A pending decision or input is useless behind a closed sheet, so those
+   * two states force it open on the tab that can answer them.
+   */
+  const sheetDemand: SheetTab | null =
+    run.status === "awaiting" || run.status === "input" ? "run" : null;
+
+  const sheetSummary =
+    run.status === "awaiting"
+      ? "Which branch?"
+      : run.status === "input"
+        ? `Value for ${run.awaitingInput}`
+        : selectedCount > 1
+          ? `${selectedCount} selected`
+          : selectedNode
+            ? selectedNode.label
+            : selectedEdge
+              ? "Arrow"
+              : run.status === "running"
+                ? "Running"
+                : "Inspect, run, and load charts";
+
+  // Both layouts render the same panels; only the arrangement differs.
+  const accountPanel = (
+    <AccountPanel
+      user={user}
+      saveState={saveState}
+      onSignedOut={() => {
+        setUser(null);
+        setSavedDoc(null);
+        setHydrated(false);
+        setSaveError(null);
+      }}
+    />
+  );
+  const importPanel = (
+    <ImportPanel
+      onLoadSample={() => applyDoc(SAMPLE_DOC)}
+      onPasteJson={() => {
+        setJsonSeed("");
+        setJsonOpen(true);
+      }}
+    />
+  );
+  const repairsNotice =
+    repairs.length > 0 ? (
+      <div className="shrink-0 border-t border-line bg-accent/10 px-5 py-3">
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-xs font-semibold">
+            Imported with {repairs.length} adjustment{repairs.length === 1 ? "" : "s"}
+          </p>
+          <button
+            type="button"
+            onClick={() => setRepairs([])}
+            className="-mt-0.5 shrink-0 rounded px-1 text-sm leading-none text-muted-fg hover:text-foreground"
+            aria-label="Dismiss import notes"
+          >
+            ×
+          </button>
+        </div>
+        <ul className="mt-1.5 max-h-28 list-disc space-y-1 overflow-y-auto pl-4 text-xs leading-relaxed text-muted-fg">
+          {repairs.map((repair) => (
+            <li key={repair}>{repair}</li>
+          ))}
+        </ul>
+      </div>
+    ) : null;
+  const inspectorPanel = (
+    <div className="min-h-0 flex-1 overflow-hidden border-t border-line">
+      <Inspector
+        selection={selection}
+        node={selectedNode}
+        edge={selectedEdge}
+        edgeEnds={
+          selectedEdge
+            ? { source: labelOf(selectedEdge.source), target: labelOf(selectedEdge.target) }
+            : null
+        }
+        outgoing={outgoing}
+        incoming={incoming}
+        onRenameNode={renameNode}
+        onSetExpr={setNodeExpr}
+        onSetCalls={setNodeCalls}
+        routines={doc.routines}
+        resolvedCallee={selectedNode ? calleeOf(doc, selectedNode) : null}
+        onRekindNode={rekindNode}
+        onDeleteNode={(id) => void deleteElements({ nodes: [{ id }] })}
+        onRelabelEdge={relabelEdge}
+        onDeleteEdge={(id) => void deleteElements({ edges: [{ id }] })}
+      />
+    </div>
+  );
+  const runPanelNode = (
+    <RunPanel
+      doc={doc}
+      run={run}
+      playing={actuallyPlaying}
+      warnings={warnings}
+      onStep={doStep}
+      onTogglePlay={() => setPlaying((p) => !p)}
+      onReset={resetRun}
+      onChoose={doChoose}
+      onSupplyInput={doSupplyInput}
+      onFocusNode={focusNode}
+    />
+  );
+
   // ---- render ----------------------------------------------------------
 
   return (
@@ -746,7 +917,7 @@ function BoardInner() {
       <div className="flex min-h-0 flex-1">
       <div
         ref={canvasRef}
-        className="relative min-w-0 flex-1"
+        className="relative min-w-0 flex-1 pb-11 md:pb-0"
         onDragOver={(event) => {
           if (event.dataTransfer.types.includes(SHAPE_DRAG_MIME)) event.preventDefault();
         }}
@@ -771,19 +942,23 @@ function BoardInner() {
           onEdgesDelete={dropEdges}
           onConnect={onConnect}
           onNodeClick={(_, node) => {
-            // Selection itself is React Flow's job; this only reveals the
+            if (multiSelect) toggleTapSelection(node.id);
+            // Otherwise selection is React Flow's job; this only reveals the
             // routine a subroutine shape calls.
             const calls = spec.nodes.find((n) => n.id === node.id)?.calls;
             setPinnedRoutine(calls && doc.routines[calls] ? calls : null);
           }}
-          onPaneClick={() => setPinnedRoutine(null)}
+          onPaneClick={() => {
+            setPinnedRoutine(null);
+            tapSelection.current.clear();
+          }}
           // Every handle is declared a source; loose mode is what lets each
           // one also accept an incoming arrow.
           connectionMode={ConnectionMode.Loose}
           // Left drag draws a selection box in select mode; middle and right
           // drag always pan, so there is a way round the canvas either way.
-          selectionOnDrag={tool === "select"}
-          panOnDrag={tool === "select" ? [1, 2] : true}
+          selectionOnDrag={effectiveTool === "select"}
+          panOnDrag={effectiveTool === "select" ? [1, 2] : true}
           // Touching a shape is enough to catch it — requiring full
           // containment is fiddly when the shapes are this wide.
           selectionMode={SelectionMode.Partial}
@@ -800,10 +975,14 @@ function BoardInner() {
             onAdd={(kind) => addNode(kind)}
             tool={tool}
             onToolChange={setTool}
+            multiSelect={multiSelect}
+            onMultiSelectChange={changeMultiSelect}
+            compact={isMobile}
           />
 
+          {/* mt-16 clears the compact palette, which owns the top band on a phone. */}
           {selectedCount > 1 && (
-            <Panel position="top-center" className="!m-3">
+            <Panel position="top-center" className="!mx-3 !mb-3 !mt-16 md:!mt-3">
               <div className="flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-1.5 shadow-md">
                 <span className="text-xs font-medium">
                   {selectedNodeIds.length > 0 &&
@@ -813,16 +992,19 @@ function BoardInner() {
                     `${selectedEdgeIds.length} arrow${selectedEdgeIds.length === 1 ? "" : "s"}`}
                   {" selected"}
                 </span>
-                <span className="text-[11px] text-muted-fg">drag to move together</span>
+                <span className="hidden text-[11px] text-muted-fg sm:inline">
+                  drag to move together
+                </span>
                 <button
                   type="button"
-                  onClick={() =>
+                  onClick={() => {
                     void deleteElements({
                       nodes: selectedNodeIds.map((id) => ({ id })),
                       edges: selectedEdgeIds.map((id) => ({ id })),
-                    })
-                  }
-                  className="rounded-md border border-line px-2 py-0.5 text-xs font-medium text-danger hover:bg-surface-muted"
+                    });
+                    tapSelection.current.clear();
+                  }}
+                  className="min-h-8 rounded-md border border-line px-2 py-0.5 text-xs font-medium text-danger hover:bg-surface-muted"
                 >
                   Delete
                 </button>
@@ -830,8 +1012,10 @@ function BoardInner() {
             </Panel>
           )}
           <Background variant={BackgroundVariant.Dots} gap={22} size={1.4} color="var(--canvas-dot)" />
-          <Controls showInteractive={false} />
+          {/* Pinch and drag cover these on touch, and they crowd a small canvas. */}
+          <Controls showInteractive={false} className="!hidden md:!flex" />
           <MiniMap
+            className="!hidden md:!block"
             pannable
             zoomable
             nodeColor={(node) => `var(--${(node.data as { kind: NodeKind }).kind}-stroke)`}
@@ -844,6 +1028,7 @@ function BoardInner() {
             lines={run.output}
             running={run.status === "running" || run.status === "input"}
             onClear={clearOutput}
+            startCollapsed={isMobile}
           />
         )}
 
@@ -865,86 +1050,29 @@ function BoardInner() {
 
       {/* overflow-y-auto is the safety net: on a short viewport the fixed-height
           panels can still exceed the column, and scrolling beats overlapping. */}
-      <aside className="flex w-85 shrink-0 flex-col overflow-y-auto border-l border-line bg-surface">
-        <AccountPanel
-          user={user}
-          saveState={saveState}
-          onSignedOut={() => {
-            setUser(null);
-            setSavedDoc(null);
-            setHydrated(false);
-            setSaveError(null);
-          }}
-        />
-
-        <ImportPanel
-          onLoadSample={() => applyDoc(SAMPLE_DOC)}
-          onPasteJson={() => {
-            setJsonSeed("");
-            setJsonOpen(true);
-          }}
-        />
-
-        {repairs.length > 0 && (
-          <div className="shrink-0 border-t border-line bg-accent/10 px-5 py-3">
-            <div className="flex items-start justify-between gap-2">
-              <p className="text-xs font-semibold">
-                Imported with {repairs.length} adjustment{repairs.length === 1 ? "" : "s"}
-              </p>
-              <button
-                type="button"
-                onClick={() => setRepairs([])}
-                className="-mt-0.5 shrink-0 rounded px-1 text-sm leading-none text-muted-fg hover:text-foreground"
-                aria-label="Dismiss import notes"
-              >
-                ×
-              </button>
-            </div>
-            <ul className="mt-1.5 max-h-28 list-disc space-y-1 overflow-y-auto pl-4 text-xs leading-relaxed text-muted-fg">
-              {repairs.map((repair) => (
-                <li key={repair}>{repair}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        <div className="min-h-0 flex-1 overflow-hidden border-t border-line">
-          <Inspector
-            selection={selection}
-            node={selectedNode}
-            edge={selectedEdge}
-            edgeEnds={
-              selectedEdge
-                ? { source: labelOf(selectedEdge.source), target: labelOf(selectedEdge.target) }
-                : null
-            }
-            outgoing={outgoing}
-            incoming={incoming}
-            onRenameNode={renameNode}
-            onSetExpr={setNodeExpr}
-            onSetCalls={setNodeCalls}
-            routines={doc.routines}
-            resolvedCallee={selectedNode ? calleeOf(doc, selectedNode) : null}
-            onRekindNode={rekindNode}
-            onDeleteNode={(id) => void deleteElements({ nodes: [{ id }] })}
-            onRelabelEdge={relabelEdge}
-            onDeleteEdge={(id) => void deleteElements({ edges: [{ id }] })}
-          />
-        </div>
-
-        <RunPanel
-          doc={doc}
-          run={run}
-          playing={actuallyPlaying}
-          warnings={warnings}
-          onStep={doStep}
-          onTogglePlay={() => setPlaying((p) => !p)}
-          onReset={resetRun}
-          onChoose={doChoose}
-          onSupplyInput={doSupplyInput}
-          onFocusNode={focusNode}
-        />
+      {/* Desktop: a column beside the canvas. */}
+      <aside className="hidden w-85 shrink-0 flex-col overflow-y-auto border-l border-line bg-surface md:flex">
+        {accountPanel}
+        {importPanel}
+        {repairsNotice}
+        {inspectorPanel}
+        {runPanelNode}
       </aside>
+
+      {/* Phone: the same panels in a sheet along the bottom. */}
+      <MobileSheet
+        summary={sheetSummary}
+        demand={sheetDemand}
+        inspect={inspectorPanel}
+        run={runPanelNode}
+        chart={
+          <>
+            {accountPanel}
+            {importPanel}
+            {repairsNotice}
+          </>
+        }
+      />
       </div>
     </div>
   );
@@ -962,7 +1090,7 @@ function BoardHeader({
   const [copied, setCopied] = useState(false);
 
   return (
-    <header className="flex shrink-0 items-center justify-between gap-4 border-b border-line bg-surface px-5 py-2.5">
+    <header className="flex shrink-0 items-center justify-between gap-3 border-b border-line bg-surface px-3 py-2 md:gap-4 md:px-5 md:py-2.5">
       <div className="flex min-w-0 items-baseline gap-3">
         <h1 className="truncate text-sm font-semibold">{doc.main.title || "Untitled flowchart"}</h1>
         <span className="hidden shrink-0 text-xs text-muted-fg sm:inline">
@@ -971,14 +1099,14 @@ function BoardHeader({
             ` · ${Object.keys(doc.routines).length} routine(s)`}
         </span>
       </div>
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="flex shrink-0 items-center gap-1.5 md:gap-2">
         <button
           type="button"
           onClick={onRelayout}
-          className="rounded-md border border-line px-2.5 py-1 text-xs font-medium hover:bg-surface-muted"
+          className="min-h-8 rounded-md border border-line px-2.5 py-1 text-xs font-medium hover:bg-surface-muted"
           title="Re-run auto-layout, discarding manual positions"
         >
-          Tidy layout
+          Tidy<span className="hidden sm:inline"> layout</span>
         </button>
         <button
           type="button"
@@ -995,16 +1123,16 @@ function BoardHeader({
               // Clipboard access can be denied; nothing useful to recover here.
             }
           }}
-          className="rounded-md border border-line px-2.5 py-1 text-xs font-medium hover:bg-surface-muted"
+          className="min-h-8 rounded-md border border-line px-2.5 py-1 text-xs font-medium hover:bg-surface-muted"
         >
-          {copied ? "Copied" : "Copy JSON"}
+          {copied ? "Copied" : "Copy"}<span className="hidden sm:inline">{copied ? "" : " JSON"}</span>
         </button>
         <button
           type="button"
           onClick={onPasteJson}
-          className="rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-accent-fg"
+          className="min-h-8 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-accent-fg"
         >
-          Paste JSON
+          Paste<span className="hidden sm:inline"> JSON</span>
         </button>
       </div>
     </header>

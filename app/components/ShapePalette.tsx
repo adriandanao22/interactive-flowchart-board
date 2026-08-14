@@ -13,6 +13,14 @@ interface Props {
   onAdd: (kind: NodeKind) => void;
   tool: "select" | "pan";
   onToolChange: (tool: "select" | "pan") => void;
+  /** Touch-only: tapping shapes adds to the selection instead of replacing it. */
+  multiSelect: boolean;
+  onMultiSelectChange: (value: boolean) => void;
+  /**
+   * Lay out along the top instead of down the side. A column of nine buttons
+   * takes most of a phone's canvas height; a scrolling row costs one band.
+   */
+  compact?: boolean;
 }
 
 const PREVIEW_W = 34;
@@ -22,32 +30,72 @@ const PREVIEW_H = 22;
  * Floating palette of the seven shapes. Click to drop one into the middle of
  * the view, or drag one onto the canvas to place it exactly.
  */
-export function ShapePalette({ onAdd, tool, onToolChange }: Props) {
+export function ShapePalette({
+  onAdd,
+  tool,
+  onToolChange,
+  multiSelect,
+  onMultiSelectChange,
+  compact = false,
+}: Props) {
+  // Deliberately not `top-center` when compact: React Flow centres that with
+  // `translateX(-50%)`, which pushes half the row off the left of a phone
+  // screen no matter what `inset-x` says. Anchoring left and stretching right
+  // avoids the transform entirely.
   return (
-    <Panel position="top-left" className="!m-3">
-      <div className="flex flex-col gap-1 rounded-lg border border-line bg-surface p-1.5 shadow-md">
-        <div className="flex gap-1 pb-1">
-          <ToolButton
-            active={tool === "select"}
-            onClick={() => onToolChange("select")}
-            label="Select"
-            title="Drag on empty canvas to select shapes. Middle or right drag pans."
-          >
-            ⬚
-          </ToolButton>
-          <ToolButton
-            active={tool === "pan"}
-            onClick={() => onToolChange("pan")}
-            label="Pan"
-            title="Drag to move around. Shift-drag still selects."
-          >
-            ✥
-          </ToolButton>
+    <Panel
+      position="top-left"
+      className={compact ? "!top-2 !right-2 !left-2 !m-0 !w-auto" : "!m-3"}
+    >
+      <div
+        className={`flex gap-1 rounded-lg border border-line bg-surface p-1.5 shadow-md ${
+          compact ? "flex-row items-center overflow-x-auto" : "flex-col"
+        }`}
+      >
+        <div className={`flex gap-1 ${compact ? "shrink-0" : "pb-1"}`}>
+          {compact ? (
+            // A drag-marquee is unavailable on touch: React Flow skips it, and
+            // forcing it on would disable panning and pinch-zoom entirely.
+            // Tapping to build up a selection is the workable equivalent.
+            <ToolButton
+              active={multiSelect}
+              onClick={() => onMultiSelectChange(!multiSelect)}
+              label="Select multiple shapes"
+              title="Tap shapes to add them to the selection"
+            >
+              <span className="px-1 text-xs whitespace-nowrap">
+                {multiSelect ? "Selecting…" : "Select many"}
+              </span>
+            </ToolButton>
+          ) : (
+            <>
+              <ToolButton
+                active={tool === "select"}
+                onClick={() => onToolChange("select")}
+                label="Select"
+                title="Drag on empty canvas to select shapes. Middle or right drag pans."
+              >
+                ⬚
+              </ToolButton>
+              <ToolButton
+                active={tool === "pan"}
+                onClick={() => onToolChange("pan")}
+                label="Pan"
+                title="Drag to move around. Shift-drag still selects."
+              >
+                ✥
+              </ToolButton>
+            </>
+          )}
         </div>
 
-        <p className="border-t border-line px-1 pt-1.5 pb-1 text-[10px] font-semibold tracking-wider text-muted-fg uppercase">
-          Add
-        </p>
+        {compact ? (
+          <span className="shrink-0 self-stretch border-l border-line" aria-hidden />
+        ) : (
+          <p className="border-t border-line px-1 pt-1.5 pb-1 text-[10px] font-semibold tracking-wider text-muted-fg uppercase">
+            Add
+          </p>
+        )}
         {NODE_KINDS.map((kind) => (
           <button
             key={kind}
@@ -60,7 +108,7 @@ export function ShapePalette({ onAdd, tool, onToolChange }: Props) {
             onClick={() => onAdd(kind)}
             title={`${KIND_INFO[kind].name} — click to add, or drag onto the canvas`}
             aria-label={`Add ${KIND_INFO[kind].name}`}
-            className="relative cursor-grab rounded p-1 hover:bg-surface-muted active:cursor-grabbing"
+            className="relative shrink-0 cursor-grab rounded p-1 hover:bg-surface-muted active:cursor-grabbing"
           >
             <span
               className="relative block"
@@ -100,7 +148,7 @@ function ToolButton({
       title={title}
       aria-label={label}
       aria-pressed={active}
-      className={`flex-1 rounded px-2 py-1 text-sm leading-none ${
+      className={`min-h-8 min-w-9 flex-1 rounded px-2 py-1 text-sm leading-none ${
         active ? "bg-accent text-accent-fg" : "text-muted-fg hover:bg-surface-muted"
       }`}
     >

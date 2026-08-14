@@ -9,6 +9,8 @@ interface Props {
   /** True while a run is in progress, so the console can show it is live. */
   running: boolean;
   onClear: () => void;
+  /** Phones have little vertical room; start out of the way there. */
+  startCollapsed?: boolean;
 }
 
 const LINE_STYLE: Record<OutputLine["kind"], string> = {
@@ -31,8 +33,8 @@ const LINE_MARK: Record<OutputLine["kind"], string> = {
  * the app produces and the sidebar is already the narrowest column. Collapses
  * to a single bar so it never fights the board for space.
  */
-export function Console({ lines, running, onClear }: Props) {
-  const [collapsed, setCollapsed] = useState(false);
+export function Console({ lines, running, onClear, startCollapsed = false }: Props) {
+  const [collapsed, setCollapsed] = useState(startCollapsed);
   const scroller = useRef<HTMLDivElement>(null);
 
   // Follow the newest line, the way a terminal does.
@@ -44,7 +46,7 @@ export function Console({ lines, running, onClear }: Props) {
   const printed = lines.filter((line) => line.kind === "output").length;
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center p-3">
+    <div className="pointer-events-none absolute inset-x-0 bottom-11 z-10 flex justify-center p-2 md:bottom-0 md:p-3">
       <div className="pointer-events-auto flex w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-line bg-surface/95 shadow-lg backdrop-blur-sm">
         <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-1.5">
           <button
@@ -83,7 +85,7 @@ export function Console({ lines, running, onClear }: Props) {
         </div>
 
         {!collapsed && (
-          <div ref={scroller} className="max-h-44 min-h-16 overflow-y-auto px-3 py-2">
+          <div ref={scroller} className="max-h-28 min-h-12 overflow-y-auto px-3 py-2 md:max-h-44 md:min-h-16">
             {lines.length === 0 ? (
               <p className="font-mono text-xs text-muted-fg">
                 Output from <code>print</code> shapes appears here.
