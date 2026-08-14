@@ -1,26 +1,202 @@
 @import "tailwindcss";
 
+/*
+ * Two palettes: the app chrome (surfaces, text, borders) and the shape palette
+ * used by flowchart nodes. Both are defined light-first on :root, then
+ * overridden for dark, so a single token name works in either scheme.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f6f7f9;
+  --foreground: #14171f;
+
+  --surface: #ffffff;
+  --surface-muted: #f0f2f5;
+  --border: #dfe3e9;
+  --border-strong: #c3cad4;
+  --muted-fg: #5c6472;
+  --accent: #4f46e5;
+  --accent-fg: #ffffff;
+  --danger: #b91c1c;
+
+  --canvas: #fbfbfd;
+  --canvas-dot: #d2d7e0;
+
+  /* Shape palette: fill / stroke / text, one triple per node kind. */
+  --start-fill: #dcfce7;
+  --start-stroke: #16a34a;
+  --start-text: #14532d;
+
+  --end-fill: #ffe4e6;
+  --end-stroke: #e11d48;
+  --end-text: #881337;
+
+  --process-fill: #dbeafe;
+  --process-stroke: #2563eb;
+  --process-text: #1e3a8a;
+
+  --decision-fill: #fef3c7;
+  --decision-stroke: #d97706;
+  --decision-text: #78350f;
+
+  --io-fill: #ede9fe;
+  --io-stroke: #7c3aed;
+  --io-text: #4c1d95;
+
+  --subroutine-fill: #cffafe;
+  --subroutine-stroke: #0891b2;
+  --subroutine-text: #164e63;
+
+  --connector-fill: #e2e8f0;
+  --connector-stroke: #64748b;
+  --connector-text: #1e293b;
+
+  --edge: #8b93a3;
+  --edge-taken: #4f46e5;
+  --run-glow: #4f46e5;
+  --waiting-glow: #d97706;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0c0e13;
+    --foreground: #e8eaf0;
+
+    --surface: #14171e;
+    --surface-muted: #1b1f28;
+    --border: #272c37;
+    --border-strong: #3a4150;
+    --muted-fg: #99a1b3;
+    --accent: #818cf8;
+    --accent-fg: #0c0e13;
+    --danger: #f87171;
+
+    --canvas: #0f1218;
+    --canvas-dot: #2a303c;
+
+    --start-fill: #0d3320;
+    --start-stroke: #34d399;
+    --start-text: #a7f3d0;
+
+    --end-fill: #3d1220;
+    --end-stroke: #fb7185;
+    --end-text: #fecdd3;
+
+    --process-fill: #14284d;
+    --process-stroke: #60a5fa;
+    --process-text: #bfdbfe;
+
+    --decision-fill: #40290a;
+    --decision-stroke: #fbbf24;
+    --decision-text: #fde68a;
+
+    --io-fill: #291a4d;
+    --io-stroke: #a78bfa;
+    --io-text: #ddd6fe;
+
+    --subroutine-fill: #0b3641;
+    --subroutine-stroke: #22d3ee;
+    --subroutine-text: #a5f3fc;
+
+    --connector-fill: #232833;
+    --connector-stroke: #94a3b8;
+    --connector-text: #e2e8f0;
+
+    --edge: #5d6577;
+    --edge-taken: #a5b4fc;
+    --run-glow: #a5b4fc;
+    --waiting-glow: #fbbf24;
+  }
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-muted-fg: var(--muted-fg);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-danger: var(--danger);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* ---- React Flow overrides ------------------------------------------- */
+
+.react-flow__attribution {
+  display: none;
+}
+
+.react-flow__edge-path {
+  stroke: var(--edge);
+  stroke-width: 1.75;
+}
+
+.react-flow__edge.edge-taken .react-flow__edge-path {
+  stroke: var(--edge-taken);
+  stroke-width: 2.75;
+}
+
+.react-flow__edge.edge-choice .react-flow__edge-path {
+  stroke: var(--edge-taken);
+  stroke-width: 2.5;
+  stroke-dasharray: 7 5;
+  animation: dash 0.6s linear infinite;
+}
+
+@keyframes dash {
+  to {
+    stroke-dashoffset: -12;
+  }
+}
+
+.react-flow__edge-text {
+  fill: var(--foreground);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.react-flow__edge-textbg {
+  fill: var(--canvas);
+}
+
+.react-flow__handle {
+  width: 7px;
+  height: 7px;
+  min-width: 0;
+  min-height: 0;
+  border: 1.5px solid var(--canvas);
+  background: var(--border-strong);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.react-flow__node:hover .react-flow__handle,
+.react-flow__handle.connecting,
+.react-flow__handle-connecting {
+  opacity: 1;
+}
+
+.react-flow__controls-button {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  fill: var(--foreground);
+}
+
+.react-flow__controls-button:hover {
+  background: var(--surface-muted);
+}
+
+.react-flow__minimap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
 }
