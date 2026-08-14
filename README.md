@@ -49,8 +49,16 @@ the text in place. To turn a picture into JSON, run it through a chat model
 with the prompt in [PASTE.md](PASTE.md). The result is auto-laid-out with
 dagre. No API key and no network call: transcription happens outside the app.
 
-**Edit** — drag shapes, pan and zoom, select and press `Delete` to remove
-things. Every shape has a connection point on each of its four sides, and each
+**Edit** — drag shapes, pan and zoom, select and press `Delete` or
+`Backspace` to remove things.
+
+**Select several at once** — with the *Select* tool (top-left of the canvas),
+drag on empty canvas to draw a box; anything it touches is selected. Drag any
+one of them to move the whole group, or press `Delete`. A toolbar appears with
+the count and a delete button, so it does not depend on knowing the keyboard
+shortcut. Middle-drag or right-drag pans while in this mode. Switch to the
+*Pan* tool if you would rather left-drag moved the canvas — `Shift`-drag still
+draws a selection box either way. Every shape has a connection point on each of its four sides, and each
 one works as both an exit and an entry, so an arrow can be drawn from any side
 to any other; the sides you drag between are the ones the arrow keeps. Pick a shape to edit its
 label, or change its type if the image was read wrong. *Tidy layout* re-runs

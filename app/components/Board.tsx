@@ -5,6 +5,8 @@ import {
   BackgroundVariant,
   Controls,
   ConnectionMode,
+  Panel,
+  SelectionMode,
   MarkerType,
   MiniMap,
   ReactFlow,
@@ -104,7 +106,12 @@ function BoardInner() {
   const [pinnedRoutine, setPinnedRoutine] = useState<string | null>(null);
   const [nodes, setNodes, onNodesChange] = useNodesState<BoardNode>(INITIAL_BOARD.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(INITIAL_BOARD.edges);
-  const [selection, setSelection] = useState<Selection>(null);
+  /**
+   * Which tool the left mouse button drives. React Flow only honours
+   * `selectionOnDrag` when `panOnDrag` is not plain `true`, so the two are
+   * always set together.
+   */
+  const [tool, setTool] = useState<"select" | "pan">("select");
 
   const [run, setRun] = useState<RunState>(INITIAL_RUN);
   const [playing, setPlaying] = useState(false);
@@ -129,7 +136,7 @@ function BoardInner() {
   /** Adjustments the parser made to the last import, shown until dismissed. */
   const [repairs, setRepairs] = useState<string[]>([]);
 
-  const { fitView, setCenter, getNode, screenToFlowPosition } = useReactFlow();
+  const { fitView, setCenter, getNode, screenToFlowPosition, deleteElements } = useReactFlow();
   const canvasRef = useRef<HTMLDivElement>(null);
 
   // ---- spec → board ---------------------------------------------------
@@ -143,7 +150,6 @@ function BoardInner() {
       setPinnedRoutine(null);
       setNodes(laid.nodes);
       setEdges(laid.edges);
-      setSelection(null);
       setRun(INITIAL_RUN);
       setPlaying(false);
       // Wait for the new nodes to be measured before framing them.
@@ -166,7 +172,6 @@ function BoardInner() {
       setEditingKey(key);
       setNodes(laid.nodes);
       setEdges(laid.edges);
-      setSelection(null);
       requestAnimationFrame(() => {
         void fitView({ padding: 0.16, duration: 320 });
       });
@@ -281,7 +286,6 @@ function BoardInner() {
       nodes: prev.nodes.filter((n) => !gone.has(n.id)),
       edges: prev.edges.filter((e) => !gone.has(e.source) && !gone.has(e.target)),
     }));
-    setSelection(null);
     setRun(INITIAL_RUN);
     setPlaying(false);
   }, [setSpec]);
@@ -289,7 +293,6 @@ function BoardInner() {
   const dropEdges = useCallback((deleted: Edge[]) => {
     const gone = new Set(deleted.map((e) => e.id));
     setSpec((prev) => ({ ...prev, edges: prev.edges.filter((e) => !gone.has(e.id)) }));
-    setSelection(null);
     setRun(INITIAL_RUN);
     setPlaying(false);
   }, [setSpec]);
@@ -326,8 +329,8 @@ function BoardInner() {
         },
       ]);
 
-      // Select it so the inspector opens ready for the label to be typed.
-      setSelection({ type: "node", id });
+      // Select only the new shape, so the inspector opens on it.
+      setNodes((prev) => prev.map((n) => ({ ...n, selected: n.id === id })));
       setRun(INITIAL_RUN);
       setPlaying(false);
     },
@@ -403,7 +406,6 @@ function BoardInner() {
       setEditingKey(key);
       setNodes(laid.nodes);
       setEdges(laid.edges);
-      setSelection(null);
       requestAnimationFrame(() => void fitView({ padding: 0.2, duration: 320 }));
     },
     [doc.routines, fitView, setEdges, setNodes],
@@ -444,7 +446,6 @@ function BoardInner() {
       setEditingKey(null);
       setNodes(laid.nodes);
       setEdges(laid.edges);
-      setSelection(null);
       requestAnimationFrame(() => void fitView({ padding: 0.16, duration: 320 }));
     },
     [doc.main, fitView, setEdges, setNodes],
@@ -487,10 +488,10 @@ function BoardInner() {
 
   const focusNode = useCallback(
     (id: string) => {
-      setSelection({ type: "node", id });
+      setNodes((prev) => prev.map((n) => ({ ...n, selected: n.id === id })));
       void fitView({ nodes: [{ id }], padding: 1.4, duration: 320, maxZoom: 1.3 });
     },
-    [fitView],
+    [fitView, setNodes],
   );
 
   // ---- image import ---------------------------------------------------
@@ -621,14 +622,13 @@ function BoardInner() {
 
     return nodes.map((node) => ({
       ...node,
-      selected: selection?.type === "node" && selection.id === node.id,
       data: {
         ...node.data,
         runState: states.get(node.id) ?? "none",
         visits: counts.get(node.id) ?? 0,
       },
     }));
-  }, [nodes, run, selection, editingKey]);
+  }, [nodes, run, editingKey]);
 
   const displayEdges = useMemo(() => {
     const taken = takenEdgeIds(run, editingKey);
@@ -638,7 +638,6 @@ function BoardInner() {
       const highlighted = offered.has(edge.id) || taken.has(edge.id);
       return {
         ...edge,
-        selected: selection?.type === "edge" && selection.id === edge.id,
         className: offered.has(edge.id) ? "edge-choice" : taken.has(edge.id) ? "edge-taken" : "",
         markerEnd: {
           type: MarkerType.ArrowClosed,
@@ -648,7 +647,24 @@ function BoardInner() {
         },
       };
     });
-  }, [edges, run, selection, editingKey]);
+  }, [edges, run, editingKey]);
+
+  // React Flow owns `selected` on each node and edge; everything else reads
+  // it rather than keeping a second copy that would fight the marquee.
+  const selectedNodeIds = useMemo(() => nodes.filter((n) => n.selected).map((n) => n.id), [nodes]);
+  const selectedEdgeIds = useMemo(() => edges.filter((e) => e.selected).map((e) => e.id), [edges]);
+  const selectedCount = selectedNodeIds.length + selectedEdgeIds.length;
+
+  /** The inspector only makes sense for a single thing. */
+  const selection: Selection = useMemo(
+    () =>
+      selectedNodeIds.length === 1 && selectedEdgeIds.length === 0
+        ? { type: "node", id: selectedNodeIds[0] }
+        : selectedEdgeIds.length === 1 && selectedNodeIds.length === 0
+          ? { type: "edge", id: selectedEdgeIds[0] }
+          : null,
+    [selectedNodeIds, selectedEdgeIds],
+  );
 
   const selectedNode = useMemo(
     () => (selection?.type === "node" ? (spec.nodes.find((n) => n.id === selection.id) ?? null) : null),
@@ -755,23 +771,64 @@ function BoardInner() {
           onEdgesDelete={dropEdges}
           onConnect={onConnect}
           onNodeClick={(_, node) => {
-            setSelection({ type: "node", id: node.id });
-            // Clicking a subroutine reveals the routine it calls.
+            // Selection itself is React Flow's job; this only reveals the
+            // routine a subroutine shape calls.
             const calls = spec.nodes.find((n) => n.id === node.id)?.calls;
             setPinnedRoutine(calls && doc.routines[calls] ? calls : null);
           }}
-          onEdgeClick={(_, edge) => setSelection({ type: "edge", id: edge.id })}
-          onPaneClick={() => setSelection(null)}
+          onPaneClick={() => setPinnedRoutine(null)}
           // Every handle is declared a source; loose mode is what lets each
           // one also accept an incoming arrow.
           connectionMode={ConnectionMode.Loose}
+          // Left drag draws a selection box in select mode; middle and right
+          // drag always pan, so there is a way round the canvas either way.
+          selectionOnDrag={tool === "select"}
+          panOnDrag={tool === "select" ? [1, 2] : true}
+          // Touching a shape is enough to catch it — requiring full
+          // containment is fiddly when the shapes are this wide.
+          selectionMode={SelectionMode.Partial}
+          // Backspace alone is the library default, which left the Delete key
+          // doing nothing despite the docs promising otherwise.
+          deleteKeyCode={["Delete", "Backspace"]}
           proOptions={{ hideAttribution: true }}
           minZoom={0.15}
           maxZoom={2.5}
           fitView
           style={{ background: "var(--canvas)" }}
         >
-          <ShapePalette onAdd={(kind) => addNode(kind)} />
+          <ShapePalette
+            onAdd={(kind) => addNode(kind)}
+            tool={tool}
+            onToolChange={setTool}
+          />
+
+          {selectedCount > 1 && (
+            <Panel position="top-center" className="!m-3">
+              <div className="flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-1.5 shadow-md">
+                <span className="text-xs font-medium">
+                  {selectedNodeIds.length > 0 &&
+                    `${selectedNodeIds.length} shape${selectedNodeIds.length === 1 ? "" : "s"}`}
+                  {selectedNodeIds.length > 0 && selectedEdgeIds.length > 0 && ", "}
+                  {selectedEdgeIds.length > 0 &&
+                    `${selectedEdgeIds.length} arrow${selectedEdgeIds.length === 1 ? "" : "s"}`}
+                  {" selected"}
+                </span>
+                <span className="text-[11px] text-muted-fg">drag to move together</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void deleteElements({
+                      nodes: selectedNodeIds.map((id) => ({ id })),
+                      edges: selectedEdgeIds.map((id) => ({ id })),
+                    })
+                  }
+                  className="rounded-md border border-line px-2 py-0.5 text-xs font-medium text-danger hover:bg-surface-muted"
+                >
+                  Delete
+                </button>
+              </div>
+            </Panel>
+          )}
           <Background variant={BackgroundVariant.Dots} gap={22} size={1.4} color="var(--canvas-dot)" />
           <Controls showInteractive={false} />
           <MiniMap
@@ -869,16 +926,9 @@ function BoardInner() {
             routines={doc.routines}
             resolvedCallee={selectedNode ? calleeOf(doc, selectedNode) : null}
             onRekindNode={rekindNode}
-            onDeleteNode={(id) => {
-              setNodes((prev) => prev.filter((n) => n.id !== id));
-              setEdges((prev) => prev.filter((e) => e.source !== id && e.target !== id));
-              dropNodes([{ id } as Node]);
-            }}
+            onDeleteNode={(id) => void deleteElements({ nodes: [{ id }] })}
             onRelabelEdge={relabelEdge}
-            onDeleteEdge={(id) => {
-              setEdges((prev) => prev.filter((e) => e.id !== id));
-              dropEdges([{ id } as Edge]);
-            }}
+            onDeleteEdge={(id) => void deleteElements({ edges: [{ id }] })}
           />
         </div>
 

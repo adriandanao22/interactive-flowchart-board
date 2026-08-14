@@ -200,3 +200,22 @@ body {
   border: 1px solid var(--border);
   border-radius: 8px;
 }
+
+/* The marquee, and the box drawn round a multi-selection. */
+.react-flow__selection {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+}
+
+.react-flow__nodesselection-rect {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border: 1px dashed var(--accent);
+  border-radius: 6px;
+}
+
+/* Selected arrows need to read as selected too, not just nodes. */
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--accent);
+  stroke-width: 3;
+}
