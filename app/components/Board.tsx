@@ -22,6 +22,8 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type { User } from "@supabase/supabase-js";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -44,7 +46,8 @@ import {
 } from "@/lib/layout";
 import { looksLikeSpec, parseDocument } from "@/lib/parse";
 import { useIsMobile } from "@/lib/useMediaQuery";
-import { loadChart, saveChart } from "@/lib/storage";
+import { decodeSnapshot, isShareToken, snapshotFromHash } from "@/lib/share";
+import { loadChart, loadSharedChart, saveChart } from "@/lib/storage";
 import { getSupabase, supabaseConfigured } from "@/lib/supabase";
 import {
   INITIAL_RUN,
@@ -64,6 +67,7 @@ import { AccountPanel, type SaveState } from "./AccountPanel";
 import { ChartBar } from "./ChartBar";
 import { Console } from "./Console";
 import { ImportPanel } from "./ImportPanel";
+import { SharePanel } from "./SharePanel";
 import { Inspector, type Selection } from "./Inspector";
 import { MobileSheet, type SheetTab } from "./MobileSheet";
 import { JsonImportDialog } from "./JsonImportDialog";
@@ -83,8 +87,21 @@ const PLAY_INTERVAL_MS = 850;
 /** Laid out once at module load so the first paint already shows the sample. */
 const INITIAL_BOARD = layoutSpec(SAMPLE_DOC.main);
 
-function BoardInner() {
+/**
+ * How this board got its chart, when it did not come from the viewer's own
+ * account. Either way the chart is a throwaway copy: it can be run and edited
+ * freely, and none of it is written back to anyone's row.
+ */
+type Visiting =
+  | { kind: "live"; token: string; title: string }
+  | { kind: "snapshot"; title: string };
+
+function BoardInner({ shareToken }: { shareToken?: string }) {
+  const router = useRouter();
   const [doc, setDoc] = useState<FlowchartDocument>(SAMPLE_DOC);
+  /** Non-null while looking at somebody else's chart. */
+  const [visiting, setVisiting] = useState<Visiting | null>(null);
+  const [shareError, setShareError] = useState<string | null>(null);
   /** Chart the canvas is editing: null is the main chart, a string a routine. */
   const [editingKey, setEditingKey] = useState<ChartKey>(null);
   const spec = (editingKey === null ? doc.main : doc.routines[editingKey]) ?? doc.main;
@@ -139,6 +156,8 @@ function BoardInner() {
   const [hydrated, setHydrated] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  /** This user's own share token, once known. Null means not shared. */
+  const [shareId, setShareId] = useState<string | null>(null);
 
   const [jsonOpen, setJsonOpen] = useState(false);
   const [jsonSeed, setJsonSeed] = useState("");
@@ -593,6 +612,95 @@ function BoardInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMobile]);
 
+  // ---- share links ------------------------------------------------------
+
+  /**
+   * Resolve a share link before anything else touches the board.
+   *
+   * Both kinds are handled here so the "am I looking at my own chart?"
+   * question has one answer by the time the account effects run — otherwise a
+   * signed-in user opening a share link would race their own chart against the
+   * shared one, and could autosave the wrong winner over the top.
+   */
+  const [shareChecked, setShareChecked] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      if (shareToken) {
+        if (!isShareToken(shareToken)) {
+          if (!cancelled) {
+            setShareError("That does not look like a share link.");
+            setShareChecked(true);
+          }
+          return;
+        }
+        const result = await loadSharedChart(shareToken);
+        if (cancelled) return;
+        if (result.doc) {
+          applyDoc(result.doc);
+          setVisiting({
+            kind: "live",
+            token: shareToken,
+            title: result.doc.main.title || "Untitled flowchart",
+          });
+          if (result.repairs.length) setRepairs(result.repairs);
+        } else {
+          setShareError(result.error);
+        }
+        setShareChecked(true);
+        return;
+      }
+
+      const payload = snapshotFromHash(window.location.hash);
+      if (!payload) {
+        if (!cancelled) setShareChecked(true);
+        return;
+      }
+
+      const json = await decodeSnapshot(payload);
+      if (cancelled) return;
+      const parsed = json ? parseDocument(json) : null;
+      if (parsed?.doc) {
+        applyDoc(parsed.doc);
+        setVisiting({ kind: "snapshot", title: parsed.doc.main.title || "Untitled flowchart" });
+        if (parsed.repairs.length) setRepairs(parsed.repairs);
+      } else {
+        setShareError("That snapshot link could not be read — it may have been truncated.");
+      }
+      setShareChecked(true);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [shareToken, applyDoc]);
+
+  /**
+   * Stop visiting and go back to the viewer's own board.
+   *
+   * The two link kinds need different handling. A live link is a real route,
+   * so it navigates. A snapshot lives in the fragment of the page we are
+   * already on, so there is nowhere to navigate to — the payload is stripped
+   * from the URL instead, which also stops a refresh from re-opening it.
+   */
+  const leaveShare = useCallback(() => {
+    setVisiting(null);
+    setShareError(null);
+
+    if (shareToken) {
+      router.replace("/");
+      return;
+    }
+
+    window.history.replaceState(null, "", window.location.pathname);
+    // Signed in, the account effect now pulls their chart in. Signed out there
+    // is nothing to pull, so fall back to the sample rather than leaving
+    // somebody else's chart sitting there looking like the user's own.
+    if (!user) applyDoc(SAMPLE_DOC);
+  }, [shareToken, router, user, applyDoc]);
+
   // ---- account and autosave --------------------------------------------
 
   useEffect(() => {
@@ -612,9 +720,10 @@ function BoardInner() {
     };
   }, []);
 
-  // Pull the user's saved chart in when they sign in.
+  // Pull the user's saved chart in when they sign in. Not while visiting a
+  // share link — that would replace the chart they followed the link to see.
   useEffect(() => {
-    if (!user) return;
+    if (!user || !shareChecked || visiting) return;
 
     let cancelled = false;
     void (async () => {
@@ -635,6 +744,7 @@ function BoardInner() {
         setSavedDoc(null);
       }
       if (result.repairs.length) setRepairs(result.repairs);
+      setShareId(result.shareId ?? null);
       setSaveError(null);
       setHydrated(true);
     })();
@@ -642,11 +752,12 @@ function BoardInner() {
     return () => {
       cancelled = true;
     };
-  }, [user, applyDoc]);
+  }, [user, applyDoc, shareChecked, visiting]);
 
-  // Write back after a pause in editing.
+  // Write back after a pause in editing. A visited chart is a throwaway copy,
+  // so edits to it must never reach the viewer's own row.
   useEffect(() => {
-    if (!user || !hydrated || savedDoc === doc) return;
+    if (!user || !hydrated || visiting || savedDoc === doc) return;
 
     const timer = setTimeout(async () => {
       setSaving(true);
@@ -657,9 +768,11 @@ function BoardInner() {
     }, AUTOSAVE_DELAY_MS);
 
     return () => clearTimeout(timer);
-  }, [doc, user, hydrated, savedDoc]);
+  }, [doc, user, hydrated, savedDoc, visiting]);
 
-  const saveState: SaveState = !supabaseConfigured || !user
+  // A visited chart is nobody's to save, so the account panel says so rather
+  // than sitting on "All changes saved" while nothing is being written.
+  const saveState: SaveState = !supabaseConfigured || !user || visiting
     ? { kind: "off" }
     : saveError
       ? { kind: "error", message: saveError }
@@ -894,7 +1007,23 @@ function BoardInner() {
           setJsonSeed("");
           setJsonOpen(true);
         }}
+        userId={user?.id ?? null}
+        shareId={shareId}
+        onShareIdChange={setShareId}
+        saveDirty={saveState.kind === "dirty" || saveState.kind === "saving"}
+        visiting={visiting !== null}
       />
+
+      {visiting && <VisitingBanner visiting={visiting} onLeave={leaveShare} />}
+
+      {shareError && (
+        <div className="shrink-0 border-b border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger md:px-5">
+          {shareError}{" "}
+          <Link href="/" className="font-medium underline">
+            Open your own board
+          </Link>
+        </div>
+      )}
 
       <ChartBar
         doc={doc}
@@ -1078,16 +1207,56 @@ function BoardInner() {
   );
 }
 
+/**
+ * Says plainly that this is somebody else's chart and that edits are going
+ * nowhere — the one thing a viewer could otherwise get badly wrong, having
+ * spent ten minutes rearranging a board that will not survive a refresh.
+ */
+function VisitingBanner({ visiting, onLeave }: { visiting: Visiting; onLeave: () => void }) {
+  return (
+    <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-line bg-surface-muted px-3 py-2 text-xs md:px-5">
+      <span className="font-medium">Shared chart</span>
+      <span className="text-muted-fg">
+        {visiting.kind === "live"
+          ? "You are looking at someone else's board. Run it, edit it, break it — nothing here is saved."
+          : "Unpacked from the link itself. Run it, edit it, break it — nothing here is saved."}
+      </span>
+      <button
+        type="button"
+        onClick={onLeave}
+        className="ml-auto shrink-0 rounded-md border border-line bg-surface px-2.5 py-1 font-medium hover:bg-surface-muted"
+      >
+        Back to my board
+      </button>
+    </div>
+  );
+}
+
 function BoardHeader({
   doc,
   onRelayout,
   onPasteJson,
+  userId,
+  shareId,
+  onShareIdChange,
+  saveDirty,
+  visiting,
 }: {
   doc: FlowchartDocument;
   onRelayout: () => void;
   onPasteJson: () => void;
+  userId: string | null;
+  shareId: string | null;
+  onShareIdChange: (shareId: string | null) => void;
+  saveDirty: boolean;
+  visiting: boolean;
 }) {
   const [copied, setCopied] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+
+  const payload = Object.keys(doc.routines).length
+    ? { ...doc.main, routines: doc.routines }
+    : doc.main;
 
   return (
     <header className="flex shrink-0 items-center justify-between gap-3 border-b border-line bg-surface px-3 py-2 md:gap-4 md:px-5 md:py-2.5">
@@ -1099,7 +1268,7 @@ function BoardHeader({
             ` · ${Object.keys(doc.routines).length} routine(s)`}
         </span>
       </div>
-      <div className="flex shrink-0 items-center gap-1.5 md:gap-2">
+      <div className="relative flex shrink-0 items-center gap-1.5 md:gap-2">
         <button
           type="button"
           onClick={onRelayout}
@@ -1113,9 +1282,6 @@ function BoardHeader({
           onClick={async () => {
             try {
               // Include routines, or copy → edit → paste would silently lose them.
-              const payload = Object.keys(doc.routines).length
-                ? { ...doc.main, routines: doc.routines }
-                : doc.main;
               await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
               setCopied(true);
               setTimeout(() => setCopied(false), 1600);
@@ -1129,20 +1295,46 @@ function BoardHeader({
         </button>
         <button
           type="button"
+          onClick={() => setShareOpen((open) => !open)}
+          aria-expanded={shareOpen}
+          className="min-h-8 rounded-md border border-line px-2.5 py-1 text-xs font-medium hover:bg-surface-muted"
+          title={
+            visiting
+              ? "Pass this chart on, or take a snapshot of your edits"
+              : "Get a link to this chart"
+          }
+        >
+          Share
+        </button>
+        <button
+          type="button"
           onClick={onPasteJson}
           className="min-h-8 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-accent-fg"
         >
           Paste<span className="hidden sm:inline"> JSON</span>
         </button>
+
+        {shareOpen && (
+          <SharePanel
+            // While visiting, the live half would publish somebody else's
+            // chart under this user's name, so only the snapshot is offered.
+            userId={visiting ? null : userId}
+            shareId={visiting ? null : shareId}
+            onShareIdChange={onShareIdChange}
+            json={JSON.stringify(payload)}
+            dirty={saveDirty}
+            onClose={() => setShareOpen(false)}
+          />
+        )}
       </div>
     </header>
   );
 }
 
-export function Board() {
+export function Board({ shareToken }: { shareToken?: string } = {}) {
   return (
     <ReactFlowProvider>
-      <BoardInner />
+      <BoardInner shareToken={shareToken} />
     </ReactFlowProvider>
   );
 }

@@ -41,6 +41,14 @@ Row Level Security is what keeps charts private: the anon key is public, so the
 policies in the schema are the only thing stopping one account reading
 another's. Do not skip running the SQL.
 
+Share links are the one exception, and they are deliberately *not* a policy.
+A policy grants access to a set of rows, so `using (share_id is not null)`
+would let anyone with the publishable key list every shared chart in the
+project. Instead the table stays owner-only and a single `security definer`
+function takes a token and returns at most the one row matching it — no
+wildcard, no enumeration. If you set this up before share links existed, re-run
+the schema; it is written to be applied more than once.
+
 ## Using it
 
 **Import** — *Paste JSON*, or paste JSON straight onto the page: a clean paste
@@ -91,6 +99,30 @@ canvas and shows a call stack; the trace marks calls with `⤵`, returns with
 `⤴`, and connector jumps with `↷`.
 
 *Copy JSON* puts the underlying graph on the clipboard.
+
+**Share** — two kinds of link, both opening a board the viewer can run, edit
+and break without touching the original.
+
+| | Live link | Snapshot link |
+|---|---|---|
+| URL | `/c/<token>` | `/#c=<payload>` |
+| Needs an account | to publish, not to open | no |
+| Needs the database | yes | no |
+| Tracks your edits | yes, on reload | no — frozen when copied |
+| Length | fixed, short | grows with the chart (the sample is ~1.3 kB) |
+| Revocable | yes, *Stop sharing* | no — it is out there once sent |
+
+Use a live link for a chart you are still working on, and a snapshot when the
+other end should not need an account, or when you want the chart to stay
+exactly as it is. A snapshot rides in the URL fragment, which browsers never
+send to the server, so the chart does not pass through this app's host on its
+way to the recipient — but the whole chart *is* in the link, so treat sending
+one as publishing it.
+
+Opening either shows a banner saying the chart is not yours and nothing is
+being saved. Edits stay local to that tab; your own chart is untouched, and
+autosave is switched off for as long as you are looking at someone else's
+board. *Back to my board* returns to it.
 
 ## On a phone
 
