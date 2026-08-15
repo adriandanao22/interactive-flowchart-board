@@ -2,10 +2,12 @@ import {
   ExprError,
   callBuiltin,
   coerceInput,
+  conditionCandidates,
   evaluate,
   isBareReference,
   parseExpression,
   parseStatement,
+  parseStatements,
   stringify,
   type Scope,
   type Statement,
@@ -160,6 +162,13 @@ const RETURN_FORM = /^return(?=$|[\s(])\s*(.*)$/i;
 const TRUE_LABELS = new Set(["yes", "y", "true", "t"]);
 const FALSE_LABELS = new Set(["no", "n", "false", "f"]);
 
+/**
+ * Branch labels meaning "anything not covered above" — the `default:` of a
+ * switch. Without one, a multi-way decision has to spell out every possible
+ * value or the run stops to ask, which defeats the point.
+ */
+const DEFAULT_LABELS = new Set(["otherwise", "default", "else", "any", "other"]);
+
 /** The source text to execute for a node, or null when it is prose. */
 function sourceFor(node: FlowNodeSpec): string | null {
   if (node.expr !== undefined) return node.expr.trim() || null;
@@ -174,13 +183,42 @@ function sourceFor(node: FlowNodeSpec): string | null {
  * references, and treating those as code would fail every terminator with
  * "Start has no value yet".
  */
-function codeFor(node: FlowNodeSpec): Statement | null {
+function codeFor(node: FlowNodeSpec): Statement[] | null {
   const source = sourceFor(node);
   if (!source) return null;
-  const statement = parseStatement(source);
-  if (!statement) return null;
-  if (node.expr === undefined && isBareReference(statement)) return null;
-  return statement;
+
+  // Setting several things at once belongs on the shapes that *do* things.
+  // A decision has to be one condition, and I/O has its own directives.
+  const allowsList = node.kind === "preparation" || node.kind === "process";
+
+  // A decision is usually written the way it would be said aloud —
+  // "is num > 0?" — so try the literal text first, then progressively
+  // stripped forms. Everything else is taken exactly as written.
+  const candidates = node.kind === "decision" ? conditionCandidates(source) : [source];
+  // A trailing question mark is a strong enough signal of intent that a lone
+  // name after it counts as a condition: "valid?" means the variable `valid`.
+  const asksAQuestion = source.trim().endsWith("?");
+
+  for (const candidate of candidates) {
+    const statements = allowsList
+      ? parseStatements(candidate)
+      : (() => {
+          const one = parseStatement(candidate);
+          return one ? [one] : null;
+        })();
+    if (!statements) continue;
+    // A lone name is prose unless it was typed in deliberately or asked as a
+    // question — otherwise every "Start" terminator would try to evaluate.
+    if (node.expr === undefined && !asksAQuestion && statements.some(isBareReference)) continue;
+    return statements;
+  }
+  return null;
+}
+
+/** The single statement a shape carries, when only one makes sense. */
+function singleCodeFor(node: FlowNodeSpec): Statement | null {
+  const statements = codeFor(node);
+  return statements && statements.length === 1 ? statements[0] : null;
 }
 
 function scopeOf(state: RunState): Scope {
@@ -224,13 +262,22 @@ function errored(state: RunState, message: string): RunState {
 }
 
 /** Run a node's code for its side effect, returning the updated scope. */
-function applyStatement(doc: FlowchartDocument, state: RunState, statement: Statement): Scope {
-  const scope = scopeOf(state);
-  const ctx = contextFor(doc, state);
-  if (statement.kind === "assign") {
-    return { ...scope, [statement.target]: evaluate(statement.value, ctx) };
+function applyStatements(
+  doc: FlowchartDocument,
+  state: RunState,
+  statements: Statement[],
+): Scope {
+  let scope = scopeOf(state);
+  for (const statement of statements) {
+    // Rebuild the context each time so a later statement can read what an
+    // earlier one set: `int i = 0, j = i + 1` has to work.
+    const ctx = { ...contextFor(doc, state), scope };
+    if (statement.kind === "assign") {
+      scope = { ...scope, [statement.target]: evaluate(statement.value, ctx) };
+    } else {
+      evaluate(statement.value, ctx);
+    }
   }
-  evaluate(statement.value, ctx);
   return scope;
 }
 
@@ -242,7 +289,7 @@ function withScope(state: RunState, scope: Scope): RunState {
 
 /** The value a decision evaluates to, or null when it has no usable code. */
 function decisionValue(doc: FlowchartDocument, state: RunState, node: FlowNodeSpec): Value | null {
-  const statement = codeFor(node);
+  const statement = singleCodeFor(node);
   if (!statement || statement.kind !== "expression") return null;
   return evaluate(statement.value, contextFor(doc, state));
 }
@@ -256,12 +303,25 @@ function decisionValue(doc: FlowchartDocument, state: RunState, node: FlowNodeSp
  */
 function branchFor(value: Value, out: FlowEdgeSpec[]): FlowEdgeSpec | null {
   const labelOf = (edge: FlowEdgeSpec) => edge.label.trim().toLowerCase();
+  /** One arrow may cover several cases, the way `case 9: case 10:` does. */
+  const casesOf = (edge: FlowEdgeSpec) =>
+    labelOf(edge)
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+
   if (typeof value === "boolean") {
     const wanted = value ? TRUE_LABELS : FALSE_LABELS;
-    return out.find((edge) => wanted.has(labelOf(edge))) ?? null;
+    const match = out.find((edge) => casesOf(edge).some((c) => wanted.has(c)));
+    if (match) return match;
+  } else {
+    const text = stringify(value).toLowerCase();
+    const match = out.find((edge) => casesOf(edge).includes(text));
+    if (match) return match;
   }
-  const text = stringify(value).toLowerCase();
-  return out.find((edge) => labelOf(edge) === text) ?? null;
+
+  // Nothing named this value, so fall to the catch-all arrow if there is one.
+  return out.find((edge) => casesOf(edge).some((c) => DEFAULT_LABELS.has(c))) ?? null;
 }
 
 /**
@@ -316,7 +376,7 @@ export function calleeOf(doc: FlowchartDocument, node: FlowNodeSpec): string | n
   if (node.kind !== "subroutine") return null;
   if (node.calls && doc.routines[node.calls]) return node.calls;
 
-  const statement = codeFor(node);
+  const statement = singleCodeFor(node);
   if (!statement) return null;
   const value = statement.kind === "assign" ? statement.value : statement.value;
   if (value.kind === "call" && doc.routines[value.name]) return value.name;
@@ -432,9 +492,9 @@ function perform(doc: FlowchartDocument, state: RunState, node: FlowNodeSpec): R
   // how to walk a whole chart.
   if (node.kind === "subroutine") return state;
 
-  const statement = codeFor(node);
-  if (!statement) return state;
-  return withScope(state, applyStatement(doc, state, statement));
+  const statements = codeFor(node);
+  if (!statements) return state;
+  return withScope(state, applyStatements(doc, state, statements));
 }
 
 function parseOrThrow(source: string) {
@@ -449,7 +509,7 @@ function callArguments(
   state: RunState,
   node: FlowNodeSpec,
 ): { args: Value[]; assignTo?: string } {
-  const statement = codeFor(node);
+  const statement = singleCodeFor(node);
   if (!statement) return { args: [] };
 
   const assignTo = statement.kind === "assign" ? statement.target : undefined;

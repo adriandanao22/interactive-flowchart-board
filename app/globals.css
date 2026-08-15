@@ -50,6 +50,10 @@
   --connector-stroke: #64748b;
   --connector-text: #1e293b;
 
+  --preparation-fill: #fae8ff;
+  --preparation-stroke: #c026d3;
+  --preparation-text: #701a75;
+
   --edge: #8b93a3;
   --edge-taken: #4f46e5;
   --run-glow: #4f46e5;
@@ -100,6 +104,10 @@
     --connector-fill: #232833;
     --connector-stroke: #94a3b8;
     --connector-text: #e2e8f0;
+
+    --preparation-fill: #3b0a45;
+    --preparation-stroke: #e879f9;
+    --preparation-text: #f5d0fe;
 
     --edge: #5d6577;
     --edge-taken: #a5b4fc;

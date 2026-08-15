@@ -9,7 +9,7 @@ Output JSON matching exactly this shape:
 "nodes": [
 {
 "id": string, // unique slug, e.g. "n1"
-"kind": string, // one of the seven kinds listed below
+"kind": string, // one of the eight kinds listed below
 "label": string, // the text inside the shape, verbatim
 "expr": string, // optional; executable code for this shape
 "calls": string // optional; on a subroutine, the routine it invokes
@@ -41,6 +41,7 @@ Output JSON matching exactly this shape:
 "io" — parallelogram: input or output crossing the program boundary
 "subroutine" — rectangle with double bars on its sides: a call to another routine
 "connector" — small circle with a letter or number: an on/off-page jump
+"preparation" — hexagon: setting up before the work, e.g. initialising a variable
 
 Rules:
 
@@ -68,12 +69,31 @@ Rules:
   Leave "expr" off when you are guessing — a shape without it still works,
   the reader is just asked at decisions. Omit it too when the label is already
   the code, as in "i = i + 1"; the label is used when there is no "expr".
+- Labels may be written the way classroom flowcharts write them, and are
+  understood as-is: "int num = 0" or "String name" declares a variable,
+  "Display <expr>" and "Input <name>" are output and input, and a decision may
+  be phrased as a question — "is num > 0?" reads as num > 0. Only add "expr"
+  when the label is genuinely prose, such as "is num an integer?".
+- A preparation or process shape may set several things at once, separated by
+  commas, semicolons or line breaks: "int i = 0, j = 1" or "i = 0; total = 0".
+  A type carries across the commas, so "int i, j" gives both the value 0.
+  Decisions and I/O take a single statement.
 - In expressions: "=" assigns and "==" compares. Operators are + - * / %
   (or "mod"), == != < <= > >=, and "and" / "or" / "not". Functions available:
   isnumber, istext, abs, floor, ceil, round, int, sqrt, min, max, len, text.
 - Decisions with runnable code take their own branch, so label the outgoing
-  arrows "Yes" and "No" for a true/false condition. For a decision that picks
-  among several values, label each arrow with the value it matches.
+  arrows "Yes" and "No" for a true/false condition ("True"/"False" also work).
+- A decision is not limited to two exits. For one that switches on a value,
+  label each arrow with the value it matches — a diamond labelled "band?" with
+  arrows "9", "8", "7". One arrow may cover several cases if you separate them
+  with commas ("10, 9"), and an arrow labelled "otherwise" (or "default",
+  "else", "any", "other") catches everything unmatched. Matching ignores case.
+  Transcribe whatever the image shows; if a value matches nothing and there is
+  no catch-all, the reader is asked, which is the same as an unlabelled fork.
+- Switch/case is often drawn instead as a column of diamonds, one per case,
+  each false arm falling through to the next test and the last falling into a
+  default. Transcribe that shape as it appears — chained decisions with
+  "Yes"/"No" arrows — rather than collapsing it into one diamond.
 
 - A routine's key must be a plain identifier — "validate", never
   "validate(limit)". Put the signature in "title" and the argument names in

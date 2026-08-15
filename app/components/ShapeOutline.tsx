@@ -27,6 +27,8 @@ export function ShapeOutline({
   // 22px at the 210px process width, and the subroutine bars sit at 13px.
   const skew = w * 0.105;
   const bar = Math.max(2, w * 0.062);
+  // How far the hexagon's points cut in from each end.
+  const point = w * 0.13;
 
   return (
     <svg
@@ -65,6 +67,20 @@ export function ShapeOutline({
 
       {kind === "connector" && (
         <circle cx={w / 2} cy={h / 2} r={Math.min(w, h) / 2 - i} {...common} />
+      )}
+
+      {kind === "preparation" && (
+        <polygon
+          points={[
+            `${i + point},${i}`,
+            `${w - i - point},${i}`,
+            `${w - i},${h / 2}`,
+            `${w - i - point},${h - i}`,
+            `${i + point},${h - i}`,
+            `${i},${h / 2}`,
+          ].join(" ")}
+          {...common}
+        />
       )}
     </svg>
   );

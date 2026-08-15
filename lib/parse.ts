@@ -65,6 +65,15 @@ const KIND_ALIASES: Record<string, NodeKind> = {
   junction: "connector",
   circle: "connector",
   reference: "connector",
+  hexagon: "preparation",
+  prep: "preparation",
+  preparation: "preparation",
+  init: "preparation",
+  initialise: "preparation",
+  initialize: "preparation",
+  initialisation: "preparation",
+  initialization: "preparation",
+  setup: "preparation",
 };
 
 const VALID_KINDS = new Set<string>(NODE_KINDS);

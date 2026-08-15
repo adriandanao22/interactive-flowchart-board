@@ -29,6 +29,7 @@ const BASE_SIZE: Record<NodeKind, { width: number; height: number }> = {
   io: { width: 210, height: 64 },
   subroutine: { width: 210, height: 66 },
   connector: { width: 56, height: 56 },
+  preparation: { width: 210, height: 66 },
 };
 
 /**
@@ -44,6 +45,8 @@ const TEXT_INSET: Record<NodeKind, number> = {
   io: 48,
   subroutine: 44,
   connector: 12,
+  // The pointed ends eat into the text column from both sides.
+  preparation: 62,
 };
 
 const CHAR_WIDTH = 7.1; // ~13px system sans, measured empirically
@@ -65,21 +68,26 @@ export function measureNode(kind: NodeKind, label: string) {
   const textWidth = base.width - TEXT_INSET[kind];
   const perLine = Math.max(6, Math.floor(textWidth / CHAR_WIDTH));
 
-  // Wrap on whole words so the line count matches what the browser will do.
-  let lines = 1;
-  let used = 0;
-  for (const word of label.split(/\s+/).filter(Boolean)) {
-    const cost = used === 0 ? word.length : word.length + 1;
-    if (used + cost > perLine && used > 0) {
-      lines += 1;
-      used = word.length;
-    } else {
-      used += cost;
-    }
-    // A single word longer than the line wraps mid-word.
-    while (used > perLine) {
-      lines += 1;
-      used -= perLine;
+  // Honour line breaks the author typed — a preparation shape setting three
+  // things is usually written stacked — then wrap each of those on words, so
+  // the count matches what the browser will render.
+  let lines = 0;
+  for (const paragraph of label.split("\n")) {
+    lines += 1;
+    let used = 0;
+    for (const word of paragraph.split(/\s+/).filter(Boolean)) {
+      const cost = used === 0 ? word.length : word.length + 1;
+      if (used + cost > perLine && used > 0) {
+        lines += 1;
+        used = word.length;
+      } else {
+        used += cost;
+      }
+      // A single word longer than the line wraps mid-word.
+      while (used > perLine) {
+        lines += 1;
+        used -= perLine;
+      }
     }
   }
 
@@ -214,6 +222,7 @@ export const DEFAULT_LABEL: Record<NodeKind, string> = {
   io: "Input / output",
   subroutine: "routine()",
   connector: "A",
+  preparation: "int count = 0",
 };
 
 /** Next free `nN` id, so added shapes keep the same naming as imported ones. */

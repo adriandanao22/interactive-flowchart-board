@@ -14,7 +14,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000. The board loads a FizzBuzz example straight away.
+Open http://localhost:3000. The board loads an *Exam Grader* example straight away.
 
 **Accounts and saving are optional.** Without them the board is a local
 scratchpad and nothing is stored. To turn them on, create a project at
@@ -71,7 +71,7 @@ per chart, so selection, the inspector and the palette are only ever in one
 place. The floating routine view has an *Edit* button that hands that routine
 to the canvas.
 
-**Add shapes** — the palette at the top-left of the canvas holds all seven
+**Add shapes** — the palette at the top-left of the canvas holds all eight
 kinds. Click one to drop it into the middle of the view, or drag it onto the
 canvas to place it exactly. New shapes arrive with a placeholder label and are
 selected straight away, so the inspector is ready to type into. They start
@@ -136,7 +136,7 @@ importer just has to emit the same shape.
 | [lib/useMediaQuery.ts](lib/useMediaQuery.ts) | Breakpoint and pointer-type checks, via `useSyncExternalStore` |
 | [lib/parse.ts](lib/parse.ts) | Pasted text → `FlowchartDocument`, with repair and validation |
 | [app/components/Board.tsx](app/components/Board.tsx) | Wires state, editing, run controls, and import together |
-| [app/components/ShapeOutline.tsx](app/components/ShapeOutline.tsx) | The SVG geometry for all seven shapes, at any size |
+| [app/components/ShapeOutline.tsx](app/components/ShapeOutline.tsx) | The SVG geometry for all eight shapes, at any size |
 | [app/components/ShapeNode.tsx](app/components/ShapeNode.tsx) | A canvas node: outline, HTML label, handles, run highlight |
 | [app/components/ShapePalette.tsx](app/components/ShapePalette.tsx) | Click-or-drag palette for adding shapes |
 | [app/components/RoutinePanel.tsx](app/components/RoutinePanel.tsx) | The callee, floated over the caller while a subroutine runs |
@@ -147,9 +147,15 @@ importer just has to emit the same shape.
 
 ## Supported shapes
 
-Terminator (start/end), process, decision, input/output, subroutine, and
-connector. Colours and teaching copy for each live in `KIND_INFO`, and the
-built-in sample chart exercises all seven.
+Terminator (start/end), process, decision, input/output, subroutine,
+connector, and preparation (the hexagon, for setup such as initialising a
+variable before a loop).
+
+**Preparation and process shapes can set several things at once** — separated
+by commas, semicolons or line breaks, with a declared type carrying across the
+commas, so `int i, j` gives both the value 0. Later statements see what earlier
+ones set, and line breaks you type are kept when the shape is drawn. Colours and teaching copy for each live in `KIND_INFO`, and the
+built-in sample chart exercises all eight.
 
 **Shapes can actually run.** A shape carrying an `expr` — or whose label is
 itself code — executes rather than being stepped over: a process assigns, a
@@ -159,6 +165,35 @@ run panel; printed output goes to a console docked along the bottom of the
 canvas, which marks program output `›`, values you typed `‹`, and errors `✕`,
 and collapses to a single bar when you want the space back. Routines take parameters and return values, so
 `ok = validate(limit)` feeds the next decision directly.
+
+The built-in example is deliberately small: read a score, hand it to a
+`checkScore` routine that returns whether it is valid, then grade it against
+two marks — pass, passable, or fail. A bad score prints a notice and jumps back
+to the prompt through connector pair `A` — which is both a loop and the textbook
+reason connectors exist. Pair `B` shows the other reason: it carries the happy
+path straight on, but because a jump breaks the chain, layout puts the grading
+half in its own column instead of running the chart off the bottom of the
+screen. A second routine, `letterFor`, turns the score into a
+letter grade and is drawn the way switch/case is drawn by hand: a preparation
+hexagon computes the subject once, then a column of diamonds tests one case
+each, every false arm falling through to the next and the last into a default.
+All four arms converge on a single return. Between them the three charts use
+all eight shapes, and exactly one shape needs a separate `expr`.
+
+**A decision is not limited to Yes/No.** Where the condition is a comparison,
+the run takes the `Yes`/`No` (or `True`/`False`) arm. Where it evaluates to a
+value instead — a diamond labelled `band?` — the run takes the arrow whose
+label matches that value. One arrow may list several cases separated by commas
+(`10, 9`), and an arrow labelled `otherwise`, `default`, `else`, `any` or
+`other` catches whatever is left; matching ignores case. If nothing matches and
+there is no catch-all, the run asks rather than guessing. So a switch reads
+either way — as one diamond fanning out, or as the chained diamonds `letterFor`
+uses.
+
+Labels can be written the way flowcharts are usually drawn. `int num = 0`
+declares and initialises; `Display "..."` and `Input num` are output and input
+(`print`/`read` work too); and a decision may be asked as a question, so
+`is num > 0?` needs no separate code. What a shape cannot parse stays prose.
 
 The language is deliberately tiny — arithmetic, comparison, `and`/`or`/`not`,
 `mod`, strings, and calls.
@@ -201,7 +236,7 @@ edit — an earlier duplicate in this README drifted out of sync with it.
 
 The importer is deliberately forgiving, so minor deviations still work: code
 fences and surrounding prose are stripped, `Start`/`input`/`predefined process`
-and similar synonyms are mapped onto the seven kinds, missing edge ids are
+and similar synonyms are mapped onto the eight kinds, missing edge ids are
 generated, missing labels become `""`, and arrows pointing at non-existent
 nodes are dropped. Anything it corrects is listed in the sidebar after import
 so you can check it. Anything it can't correct — an unknown shape kind,

@@ -15,6 +15,7 @@ export const NODE_KINDS = [
   "io",
   "subroutine",
   "connector",
+  "preparation",
 ] as const;
 
 export type NodeKind = (typeof NODE_KINDS)[number];
@@ -137,6 +138,13 @@ export const KIND_INFO: Record<
     blurb:
       "A jump label used to avoid drawing a long arrow across the page. Control continues at the matching connector.",
     example: "goto A",
+  },
+  preparation: {
+    name: "Preparation",
+    shape: "Hexagon",
+    blurb:
+      "Sets things up before the work starts — initialising a variable, fixing a limit, preparing a loop. It runs like a process; the distinct shape tells a reader this is setup rather than part of the calculation.",
+    example: "int passMark = 75",
   },
 };
 
@@ -338,87 +346,143 @@ export function lintDocument(doc: FlowchartDocument): LintWarning[] {
 }
 
 /**
- * Shown on first load so the board is useful without an API key.
+ * Shown on first load so the board is useful straight away.
  *
- * Deliberately exercises all seven shapes: the validation call is a
- * subroutine, and the error path exits through a connector pair rather than
- * dragging a long arrow down the page — the textbook reason connectors exist.
+ * Small enough to read at a glance while exercising all eight shapes and every
+ * piece of notation the runner models: a preparation hexagon setting two
+ * values, a connector pair carrying the retry back to the prompt, chained
+ * decisions producing three outcomes, and two subroutines — one returning a
+ * boolean, one switching on a value.
  */
 export const SAMPLE_SPEC: FlowchartSpec = {
-  title: "FizzBuzz",
+  title: "Exam Grader",
   nodes: [
-    { id: "n1", kind: "start", label: "Start" },
-    { id: "n2", kind: "io", label: "read limit" },
-    { id: "n3", kind: "subroutine", label: "valid = validate(limit)", calls: "validate" },
-    { id: "n4", kind: "decision", label: "valid?", expr: "valid" },
-    { id: "n5", kind: "io", label: 'print "limit must be a whole number above 0"' },
-    { id: "n6", kind: "connector", label: "A" },
-    { id: "n7", kind: "process", label: "i = 1" },
-    { id: "n8", kind: "decision", label: "i <= limit?", expr: "i <= limit" },
-    { id: "n9", kind: "decision", label: "i divisible by 15?", expr: "i % 15 == 0" },
-    { id: "n10", kind: "io", label: 'print "FizzBuzz"' },
-    { id: "n11", kind: "decision", label: "i divisible by 3?", expr: "i % 3 == 0" },
-    { id: "n12", kind: "io", label: 'print "Fizz"' },
-    { id: "n13", kind: "decision", label: "i divisible by 5?", expr: "i % 5 == 0" },
-    { id: "n14", kind: "io", label: 'print "Buzz"' },
-    { id: "n15", kind: "io", label: "print i" },
-    { id: "n16", kind: "process", label: "i = i + 1" },
-    { id: "n17", kind: "connector", label: "A" },
-    { id: "n18", kind: "end", label: "End" },
+    { id: "n1", kind: "start", label: "START" },
+    // Runs once, before the retry loop, so a re-prompt does not reset it.
+    { id: "n14", kind: "preparation", label: "int passMark = 85;\nint somewhatPass = 75" },
+    // Entry half of the retry jump: control arrives here from the far end.
+    { id: "n2", kind: "connector", label: "A" },
+    { id: "n3", kind: "io", label: 'Display "Enter your score (0-100): "' },
+    { id: "n4", kind: "io", label: "Input score" },
+    { id: "n5", kind: "subroutine", label: "ok = checkScore(score)", calls: "checkScore" },
+    { id: "n6", kind: "decision", label: "ok?" },
+    { id: "n7", kind: "io", label: 'Display "Not a score from 0 to 100. Try again."' },
+    { id: "n8", kind: "connector", label: "A" },
+    { id: "n9", kind: "decision", label: "is score >= somewhatPass?" },
+    { id: "n15", kind: "decision", label: "is score >= passMark?" },
+    { id: "n10", kind: "process", label: 'String result = "PASS"' },
+    { id: "n16", kind: "process", label: 'String result = "PASSABLE"' },
+    { id: "n11", kind: "process", label: 'String result = "FAIL"' },
+    // A second routine, this one switching on a value rather than a yes/no.
+    { id: "n17", kind: "subroutine", label: "letter = letterFor(score)", calls: "letterFor" },
+    { id: "n12", kind: "io", label: 'Display result + " (" + letter + ")"' },
+    { id: "n13", kind: "end", label: "END" },
+    // Exit half of a second jump. Breaking the chain here is what keeps the
+    // chart from running off the bottom of the screen: the grading half lays
+    // out as its own column instead of extending the input half.
+    { id: "n18", kind: "connector", label: "B" },
+    { id: "n19", kind: "connector", label: "B" },
   ],
   edges: [
-    { id: "e1", source: "n1", target: "n2", label: "" },
+    { id: "e1", source: "n1", target: "n14", label: "" },
+    { id: "e14", source: "n14", target: "n3", label: "" },
     { id: "e2", source: "n2", target: "n3", label: "" },
     { id: "e3", source: "n3", target: "n4", label: "" },
-    { id: "e4", source: "n4", target: "n5", label: "No" },
+    { id: "e4", source: "n4", target: "n5", label: "" },
     { id: "e5", source: "n5", target: "n6", label: "" },
-    { id: "e6", source: "n4", target: "n7", label: "Yes" },
+    { id: "e6", source: "n6", target: "n7", label: "NO" },
     { id: "e7", source: "n7", target: "n8", label: "" },
-    { id: "e8", source: "n8", target: "n9", label: "Yes" },
-    { id: "e9", source: "n8", target: "n18", label: "No" },
-    { id: "e10", source: "n9", target: "n10", label: "Yes" },
-    { id: "e11", source: "n9", target: "n11", label: "No" },
-    { id: "e12", source: "n11", target: "n12", label: "Yes" },
-    { id: "e13", source: "n11", target: "n13", label: "No" },
-    { id: "e14", source: "n13", target: "n14", label: "Yes" },
-    { id: "e15", source: "n13", target: "n15", label: "No" },
-    { id: "e16", source: "n10", target: "n16", label: "" },
-    { id: "e17", source: "n12", target: "n16", label: "" },
-    { id: "e18", source: "n14", target: "n16", label: "" },
-    { id: "e19", source: "n15", target: "n16", label: "" },
-    { id: "e20", source: "n16", target: "n8", label: "" },
-    { id: "e21", source: "n17", target: "n18", label: "" },
+    { id: "e8", source: "n6", target: "n18", label: "YES" },
+    { id: "e19", source: "n19", target: "n9", label: "" },
+    { id: "e9", source: "n9", target: "n15", label: "YES" },
+    { id: "e10", source: "n9", target: "n11", label: "NO" },
+    { id: "e15", source: "n15", target: "n10", label: "YES" },
+    { id: "e16", source: "n15", target: "n16", label: "NO" },
+    { id: "e11", source: "n10", target: "n17", label: "" },
+    { id: "e17", source: "n16", target: "n17", label: "" },
+    { id: "e12", source: "n11", target: "n17", label: "" },
+    { id: "e18", source: "n17", target: "n12", label: "" },
+    { id: "e13", source: "n12", target: "n13", label: "" },
   ],
 };
 
-/** The body of `validate(limit)`, run when the trace enters the subroutine. */
-const VALIDATE_ROUTINE: FlowchartSpec = {
-  title: "validate(limit)",
-  params: ["limit"],
+/** Validation: returns a boolean, so its caller branches YES / NO. */
+const CHECK_SCORE_ROUTINE: FlowchartSpec = {
+  title: "checkScore(score)",
+  params: ["score"],
   nodes: [
-    { id: "v1", kind: "start", label: "Start" },
+    { id: "c1", kind: "start", label: "START" },
     {
-      id: "v2",
+      id: "c2",
       kind: "decision",
-      label: "is limit a whole number above 0?",
-      // `and` short-circuits, so a non-numeric limit never reaches the
-      // comparison — which is the whole point of validating it here.
-      expr: "isnumber(limit) and limit > 0 and limit == int(limit)",
+      label: "is the score a whole number from 0 to 100?",
+      // This question has no operator form a reader would recognise, so it is
+      // one of the few shapes that needs `expr`. `and` short-circuits, so text
+      // never reaches the comparisons.
+      expr: "isnumber(score) and score == int(score) and score >= 0 and score <= 100",
     },
-    { id: "v3", kind: "process", label: "result = true" },
-    { id: "v4", kind: "process", label: "result = false" },
-    { id: "v5", kind: "end", label: "Return result", expr: "return result" },
+    { id: "c3", kind: "process", label: "bool valid = true" },
+    { id: "c4", kind: "process", label: "bool valid = false" },
+    { id: "c5", kind: "end", label: "Return valid", expr: "return valid" },
   ],
   edges: [
-    { id: "ve1", source: "v1", target: "v2", label: "" },
-    { id: "ve2", source: "v2", target: "v3", label: "Yes" },
-    { id: "ve3", source: "v2", target: "v4", label: "No" },
-    { id: "ve4", source: "v3", target: "v5", label: "" },
-    { id: "ve5", source: "v4", target: "v5", label: "" },
+    { id: "ce1", source: "c1", target: "c2", label: "" },
+    { id: "ce2", source: "c2", target: "c3", label: "YES" },
+    { id: "ce3", source: "c2", target: "c4", label: "NO" },
+    { id: "ce4", source: "c3", target: "c5", label: "" },
+    { id: "ce5", source: "c4", target: "c5", label: "" },
+  ],
+};
+
+/**
+ * A switch, to show an arrow condition is not only ever YES or NO.
+ *
+ * The decision produces a number and each arrow names the case it covers. One
+ * arrow can carry several, as `case 9: case 10:` would, and `otherwise` is the
+ * default that stops an uncovered value halting the run.
+ */
+/**
+ * The textbook switch-case shape: one diamond per case, the false arm falling
+ * through to the next test, and a default at the bottom that every remaining
+ * value lands on. All four arms converge on the same return.
+ *
+ * Written as a routine so the main chart stays readable — the caller just sees
+ * `letter = letterFor(score)`.
+ */
+const LETTER_FOR_ROUTINE: FlowchartSpec = {
+  title: "letterFor(score)",
+  params: ["score"],
+  nodes: [
+    { id: "g1", kind: "start", label: "START" },
+    // The switch subject: computed once, then tested case by case.
+    { id: "g2", kind: "preparation", label: "int band = int(score / 10)" },
+    { id: "g3", kind: "decision", label: "is band >= 9?" },
+    { id: "g4", kind: "process", label: 'String letter = "A"' },
+    { id: "g5", kind: "decision", label: "is band == 8?" },
+    { id: "g6", kind: "process", label: 'String letter = "B"' },
+    { id: "g7", kind: "decision", label: "is band == 7?" },
+    { id: "g8", kind: "process", label: 'String letter = "C"' },
+    // No condition of its own — this is the default arm.
+    { id: "g9", kind: "process", label: 'String letter = "F"' },
+    { id: "g10", kind: "end", label: "Return letter", expr: "return letter" },
+  ],
+  edges: [
+    { id: "ge1", source: "g1", target: "g2", label: "" },
+    { id: "ge2", source: "g2", target: "g3", label: "" },
+    { id: "ge3", source: "g3", target: "g4", label: "True" },
+    { id: "ge4", source: "g3", target: "g5", label: "False" },
+    { id: "ge5", source: "g5", target: "g6", label: "True" },
+    { id: "ge6", source: "g5", target: "g7", label: "False" },
+    { id: "ge7", source: "g7", target: "g8", label: "True" },
+    { id: "ge8", source: "g7", target: "g9", label: "False" },
+    { id: "ge9", source: "g4", target: "g10", label: "" },
+    { id: "ge10", source: "g6", target: "g10", label: "" },
+    { id: "ge11", source: "g8", target: "g10", label: "" },
+    { id: "ge12", source: "g9", target: "g10", label: "" },
   ],
 };
 
 export const SAMPLE_DOC: FlowchartDocument = {
   main: SAMPLE_SPEC,
-  routines: { validate: VALIDATE_ROUTINE },
+  routines: { checkScore: CHECK_SCORE_ROUTINE, letterFor: LETTER_FOR_ROUTINE },
 };

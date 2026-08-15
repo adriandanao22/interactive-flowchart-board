@@ -27,7 +27,7 @@ const PREVIEW_W = 34;
 const PREVIEW_H = 22;
 
 /**
- * Floating palette of the seven shapes. Click to drop one into the middle of
+ * Floating palette of the eight shapes. Click to drop one into the middle of
  * the view, or drag one onto the canvas to place it exactly.
  */
 export function ShapePalette({

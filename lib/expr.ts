@@ -142,6 +142,36 @@ export interface Assignment {
 
 export type Statement = Assignment | { kind: "expression"; value: Node };
 
+/**
+ * Type names accepted in front of a variable, so `int num = 0` reads as the
+ * declaration it obviously is.
+ *
+ * A closed list rather than "any two identifiers in a row": that pattern would
+ * also swallow prose like `Total cost = 5` and quietly declare `cost`. `num`
+ * is deliberately absent — it is far more often a variable name than a type.
+ */
+const TYPE_KEYWORDS: Record<string, Value> = {
+  int: 0,
+  integer: 0,
+  long: 0,
+  short: 0,
+  float: 0,
+  double: 0,
+  real: 0,
+  number: 0,
+  decimal: 0,
+  string: "",
+  str: "",
+  text: "",
+  char: "",
+  bool: false,
+  boolean: false,
+  var: 0,
+  let: 0,
+  const: 0,
+  auto: 0,
+};
+
 class Parser {
   private at = 0;
   constructor(private readonly tokens: Token[]) {}
@@ -160,7 +190,82 @@ class Parser {
     if (!this.eat(text)) throw new ExprError(`Expected "${text}".`);
   }
 
+  /**
+   * One or more statements from a single segment.
+   *
+   * A preparation shape is where people set several things up at once, so
+   * `int i = 0, j = 1` and `i = 0, j = 1` both read as a list. A declaration
+   * carries its type across the commas, which is what makes `int i, j` give
+   * both variables the type's zero value rather than leaving `j` unset.
+   */
+  parseStatementList(): Statement[] {
+    const out: Statement[] = [];
+    const declared = this.peek();
+    const named = this.tokens[this.at + 1];
+
+    if (
+      declared.type === "ident" &&
+      named?.type === "ident" &&
+      declared.text.toLowerCase() in TYPE_KEYWORDS
+    ) {
+      const zero = TYPE_KEYWORDS[declared.text.toLowerCase()];
+      this.at += 1; // the type name
+      do {
+        const name = this.peek();
+        if (name.type !== "ident") throw new ExprError("Expected a variable name.");
+        this.at += 1;
+        out.push({
+          kind: "assign",
+          target: name.text,
+          value: this.eat("=") ? this.parseExpression() : { kind: "literal", value: zero },
+        });
+      } while (this.eat(","));
+      this.expectEnd();
+      return out;
+    }
+
+    do {
+      out.push(this.parseSingle());
+    } while (this.eat(","));
+    this.expectEnd();
+    return out;
+  }
+
+  /** One statement, with no trailing-comma handling and no end check. */
+  private parseSingle(): Statement {
+    if (this.peek().type === "ident" && this.tokens[this.at + 1]?.text === "=") {
+      const target = this.peek().text;
+      this.at += 2;
+      return { kind: "assign", target, value: this.parseExpression() };
+    }
+    return { kind: "expression", value: this.parseExpression() };
+  }
+
   parseStatement(): Statement {
+    // `int num = 0`, or `int num` on its own — a declaration is just an
+    // assignment with the type spelled out, and an uninitialised one gets its
+    // type's zero value so later shapes have something to read.
+    const declared = this.peek();
+    const named = this.tokens[this.at + 1];
+    if (
+      declared.type === "ident" &&
+      named?.type === "ident" &&
+      declared.text.toLowerCase() in TYPE_KEYWORDS
+    ) {
+      this.at += 2;
+      if (this.eat("=")) {
+        const value = this.parseExpression();
+        this.expectEnd();
+        return { kind: "assign", target: named.text, value };
+      }
+      this.expectEnd();
+      return {
+        kind: "assign",
+        target: named.text,
+        value: { kind: "literal", value: TYPE_KEYWORDS[declared.text.toLowerCase()] },
+      };
+    }
+
     // `x = expr` is an assignment; `==` is comparison and handled below.
     if (this.peek().type === "ident" && this.tokens[this.at + 1]?.text === "=") {
       const target = this.peek().text;
@@ -266,6 +371,85 @@ class Parser {
 
     throw new ExprError(token.type === "eof" ? "Expression ended early." : `Unexpected "${token.text}".`);
   }
+}
+
+/**
+ * Strip the way people phrase a decision out loud — a leading "is"/"does" and
+ * a trailing question mark — so `is num > 0?` reads as `num > 0`.
+ *
+ * Returns the candidates to try in order, most literal first, so a label that
+ * already parses is never second-guessed.
+ */
+export function conditionCandidates(source: string): string[] {
+  const text = source.trim();
+  const candidates = [text];
+
+  const withoutMark = text.endsWith("?") ? text.slice(0, -1).trim() : null;
+  if (withoutMark) candidates.push(withoutMark);
+
+  const base = withoutMark ?? text;
+  const withoutPrefix = base.replace(/^(?:is|are|does|do|was|were|has|have)\s+/i, "");
+  if (withoutPrefix !== base) candidates.push(withoutPrefix);
+
+  return candidates;
+}
+
+/**
+ * Split on separators that are not inside a string or brackets, so a label
+ * like `Display "a; b"` or a call `f(a, b)` is never cut in half.
+ */
+function splitSegments(source: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let quote: string | null = null;
+  let current = "";
+
+  for (let i = 0; i < source.length; i++) {
+    const ch = source[i];
+    if (quote) {
+      current += ch;
+      if (ch === "\\" && i + 1 < source.length) {
+        current += source[++i];
+      } else if (ch === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === "(") depth += 1;
+    if (ch === ")") depth -= 1;
+    if (depth === 0 && (ch === ";" || ch === "\n")) {
+      parts.push(current);
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  parts.push(current);
+  return parts.map((part) => part.trim()).filter(Boolean);
+}
+
+/**
+ * Parse a shape that may set several things at once — separated by commas,
+ * semicolons or line breaks. Null when any part of it is not code.
+ */
+export function parseStatements(source: string): Statement[] | null {
+  const segments = splitSegments(source);
+  if (segments.length === 0) return null;
+
+  const out: Statement[] = [];
+  for (const segment of segments) {
+    try {
+      out.push(...new Parser(tokenize(segment)).parseStatementList());
+    } catch {
+      return null;
+    }
+  }
+  return out.length ? out : null;
 }
 
 /** Parse a statement, or return null when the text is prose rather than code. */

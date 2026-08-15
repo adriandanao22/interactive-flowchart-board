@@ -33,6 +33,7 @@ const TEXT_PADDING: Record<NodeKind, string> = {
   io: "0 24px",
   subroutine: "0 22px",
   connector: "0 4px",
+  preparation: "0 30px",
 };
 
 function ShapeNodeImpl({ data, selected }: NodeProps<BoardNode>) {
@@ -89,6 +90,9 @@ function ShapeNodeImpl({ data, selected }: NodeProps<BoardNode>) {
           fontSize: kind === "connector" ? 14 : 13,
           fontWeight: 600,
           overflowWrap: "anywhere",
+          // Line breaks the author typed are meaningful on a shape that sets
+          // several things at once; `measureNode` sizes the box for them.
+          whiteSpace: "pre-line",
         }}
       >
         {label}
