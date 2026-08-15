@@ -5,18 +5,35 @@ import { useEffect, useState } from "react";
 import type { FlowchartDocument } from "@/lib/flowchart";
 import { parseDocument } from "@/lib/parse";
 
+/** Where an import should land. */
+export type ImportTarget = "new" | "replace";
+
 interface Props {
   /** Pre-fills the box — used when a paste arrives that needs review. */
   initialText?: string;
+  /**
+   * False when there is nowhere else for a chart to go — signed out, or
+   * looking at someone else's board — in which case the only option is to
+   * replace what is on screen.
+   */
+  canAddNew: boolean;
+  /** Name of the chart that "Replace" would overwrite. */
+  currentName: string;
   onClose: () => void;
-  onImport: (doc: FlowchartDocument, repairs: string[]) => void;
+  onImport: (doc: FlowchartDocument, repairs: string[], target: ImportTarget) => void;
 }
 
 /**
  * Mounted only while open, so each appearance starts from a clean slate
  * without an effect reaching in to reset it.
  */
-export function JsonImportDialog({ initialText = "", onClose, onImport }: Props) {
+export function JsonImportDialog({
+  initialText = "",
+  canAddNew,
+  currentName,
+  onClose,
+  onImport,
+}: Props) {
   const [text, setText] = useState(initialText);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,13 +45,13 @@ export function JsonImportDialog({ initialText = "", onClose, onImport }: Props)
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  function submit() {
+  function submit(target: ImportTarget) {
     const result = parseDocument(text);
     if (!result.doc) {
       setError(result.error ?? "Could not read that JSON.");
       return;
     }
-    onImport(result.doc, result.repairs);
+    onImport(result.doc, result.repairs, target);
     onClose();
   }
 
@@ -73,7 +90,9 @@ export function JsonImportDialog({ initialText = "", onClose, onImport }: Props)
             if (error) setError(null);
           }}
           onKeyDown={(event) => {
-            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) submit();
+            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+              submit(canAddNew ? "new" : "replace");
+            }
           }}
           spellCheck={false}
           placeholder={'{ "title": "…", "nodes": [ … ], "edges": [ … ] }'}
@@ -86,11 +105,12 @@ export function JsonImportDialog({ initialText = "", onClose, onImport }: Props)
           </p>
         )}
 
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <span className="text-xs text-muted-fg">
-            <kbd className="font-mono">Ctrl</kbd>+<kbd className="font-mono">Enter</kbd> to import
+            <kbd className="font-mono">Ctrl</kbd>+<kbd className="font-mono">Enter</kbd> to{" "}
+            {canAddNew ? "add as a new chart" : "import"}
           </span>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button
               type="button"
               onClick={onClose}
@@ -100,14 +120,37 @@ export function JsonImportDialog({ initialText = "", onClose, onImport }: Props)
             </button>
             <button
               type="button"
-              onClick={submit}
+              onClick={() => submit("replace")}
               disabled={!text.trim()}
-              className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg disabled:opacity-50"
+              className="rounded-md border border-line px-3 py-1.5 text-sm font-medium hover:bg-surface-muted disabled:opacity-50"
+              title={
+                canAddNew
+                  ? `Overwrite “${currentName}” with this chart`
+                  : "Put this chart on the board"
+              }
             >
-              Import
+              {canAddNew ? "Replace this chart" : "Import"}
             </button>
+            {canAddNew && (
+              <button
+                type="button"
+                onClick={() => submit("new")}
+                disabled={!text.trim()}
+                className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg disabled:opacity-50"
+              >
+                Add as new chart
+              </button>
+            )}
           </div>
         </div>
+
+        {canAddNew && (
+          <p className="text-[11px] leading-relaxed text-muted-fg">
+            <b>Add as new</b> keeps everything you already have. <b>Replace</b>{" "}
+            overwrites “{currentName}” — its current contents are gone once the
+            next autosave lands.
+          </p>
+        )}
       </div>
     </div>
   );

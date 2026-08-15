@@ -486,3 +486,21 @@ export const SAMPLE_DOC: FlowchartDocument = {
   main: SAMPLE_SPEC,
   routines: { checkScore: CHECK_SCORE_ROUTINE, letterFor: LETTER_FOR_ROUTINE },
 };
+
+/**
+ * What *+ New* starts you with: the two terminators every flowchart needs and
+ * the arrow between them, so the first shape you add has somewhere to go.
+ *
+ * Built fresh each call rather than shared as a constant — the board mutates
+ * whatever it is handed, and a shared object would carry edits between charts.
+ */
+export function newChartDoc(title = "Untitled chart"): FlowchartDocument {
+  return documentOf({
+    title,
+    nodes: [
+      { id: "n1", kind: "start", label: "START" },
+      { id: "n2", kind: "end", label: "END" },
+    ],
+    edges: [{ id: "e1", source: "n1", target: "n2", label: "" }],
+  });
+}

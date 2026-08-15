@@ -6,8 +6,11 @@ import { liveLink, snapshotLink, SNAPSHOT_WARN_LENGTH } from "@/lib/share";
 import { startSharing, stopSharing } from "@/lib/storage";
 
 interface Props {
-  /** Null when signed out: only the snapshot link is available then. */
-  userId: string | null;
+  /**
+   * Row id of the chart to publish. Null when there is nothing to publish —
+   * signed out, or visiting someone else's board — leaving only the snapshot.
+   */
+  chartId: string | null;
   shareId: string | null;
   onShareIdChange: (shareId: string | null) => void;
   /** The chart as JSON, for building a snapshot link. */
@@ -27,7 +30,7 @@ async function copy(text: string): Promise<boolean> {
 }
 
 export function SharePanel({
-  userId,
+  chartId,
   shareId,
   onShareIdChange,
   json,
@@ -93,12 +96,12 @@ export function SharePanel({
       <div className="mt-2.5">
         <p className="text-xs font-medium">Live link</p>
         <p className="mt-0.5 text-[11px] leading-relaxed text-muted-fg">
-          {userId
+          {chartId
             ? "Always shows your latest saved version. Viewers can run and edit it; their changes never touch your copy."
             : "Sign in to publish a link that stays up to date with your edits."}
         </p>
 
-        {userId && live && (
+        {chartId && live && (
           <>
             <div className="mt-1.5 flex gap-1.5">
               <input
@@ -126,7 +129,7 @@ export function SharePanel({
               onClick={async () => {
                 setBusy(true);
                 setError(null);
-                const message = await stopSharing(userId);
+                const message = await stopSharing(chartId);
                 if (message) setError(message);
                 else onShareIdChange(null);
                 setBusy(false);
@@ -138,14 +141,14 @@ export function SharePanel({
           </>
         )}
 
-        {userId && !live && (
+        {chartId && !live && (
           <button
             type="button"
             disabled={busy}
             onClick={async () => {
               setBusy(true);
               setError(null);
-              const result = await startSharing(userId, shareId);
+              const result = await startSharing(chartId, shareId);
               if (result.error) setError(result.error);
               else onShareIdChange(result.shareId);
               setBusy(false);

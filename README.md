@@ -31,9 +31,10 @@ under either variable name. Never use the secret key — anything in a
 downloads, and a secret key there bypasses Row Level Security entirely. The app
 checks for this and refuses to start the client rather than doing it quietly.
 
-Each account gets one chart, saved automatically about a second after you stop
-editing. Sign-up uses email and password — Supabase Auth owns the hashing,
-sessions and rate limiting — with the display name kept alongside the account.
+An account holds as many charts as you like, one row each, saved automatically
+about a second after you stop editing. Sign-up uses email and password —
+Supabase Auth owns the hashing, sessions and rate limiting — with the display
+name kept alongside the account.
 Supabase sends a confirmation email by default; turn that off under
 Authentication -> Providers if you would rather accounts work immediately.
 
@@ -51,11 +52,26 @@ the schema; it is written to be applied more than once.
 
 ## Using it
 
-**Import** — *Paste JSON*, or paste JSON straight onto the page: a clean paste
-imports immediately, and anything needing a second look opens the dialog with
-the text in place. To turn a picture into JSON, run it through a chat model
-with the prompt in [PASTE.md](PASTE.md). The result is auto-laid-out with
-dagre. No API key and no network call: transcription happens outside the app.
+**Your charts** — the sidebar lists every chart on the account. Click one to
+open it, *+ New* to start another from a bare start-and-end pair, and the row
+buttons to rename (`✎`), duplicate (`⧉`) or delete (`✕`). A `◈` marks a chart
+with a live share link. Deleting asks first, because it is the only one of
+these that cannot be undone — and it takes any share link with it.
+
+Switching charts flushes whatever the autosave timer is still holding, so a
+change made a moment before you click away is not lost. The chart you had open
+is remembered per account, so a reload comes back to it. Renaming a chart also
+renames the flowchart itself: the file name and the title in the header are the
+same thing.
+
+**Import** — *Paste JSON*, or paste JSON straight onto the page. Signed in, the
+dialog always asks where it should land: **Add as new chart** keeps everything
+you already have, **Replace this chart** overwrites the open one. Signed out
+there is nowhere else for it to go, so a clean paste imports immediately and
+only a paste needing repair opens the dialog. To turn a picture into JSON, run
+it through a chat model with the prompt in [PASTE.md](PASTE.md). The result is
+auto-laid-out with dagre. No API key and no network call: transcription happens
+outside the app.
 
 **Edit** — drag shapes, pan and zoom, select and press `Delete` or
 `Backspace` to remove things.

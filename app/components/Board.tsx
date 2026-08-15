@@ -27,6 +27,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  newChartDoc,
   SAMPLE_DOC,
   lintDocument,
   routineFromName,
@@ -47,7 +48,18 @@ import {
 import { looksLikeSpec, parseDocument } from "@/lib/parse";
 import { useIsMobile } from "@/lib/useMediaQuery";
 import { decodeSnapshot, isShareToken, snapshotFromHash } from "@/lib/share";
-import { loadChart, loadSharedChart, saveChart } from "@/lib/storage";
+import {
+  type ChartSummary,
+  createChart,
+  deleteChart,
+  listCharts,
+  loadChart,
+  loadSharedChart,
+  nameFor,
+  renameChart,
+  saveChart,
+  uniqueName,
+} from "@/lib/storage";
 import { getSupabase, supabaseConfigured } from "@/lib/supabase";
 import {
   INITIAL_RUN,
@@ -66,6 +78,7 @@ import {
 import { AccountPanel, type SaveState } from "./AccountPanel";
 import { ChartBar } from "./ChartBar";
 import { Console } from "./Console";
+import { FilePanel } from "./FilePanel";
 import { ImportPanel } from "./ImportPanel";
 import { SharePanel } from "./SharePanel";
 import { Inspector, type Selection } from "./Inspector";
@@ -80,6 +93,12 @@ const nodeTypes: NodeTypes = { flowShape: ShapeNode };
 
 /** Quiet period after the last edit before the chart is written back. */
 const AUTOSAVE_DELAY_MS = 1200;
+
+/**
+ * Which chart to reopen on the next visit. Keyed by user so two accounts on
+ * one machine do not fight over the slot.
+ */
+const lastChartKey = (userId: string) => `board:lastChart:${userId}`;
 
 /** Delay between auto-played steps. Slow enough to follow by eye. */
 const PLAY_INTERVAL_MS = 850;
@@ -156,8 +175,21 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
   const [hydrated, setHydrated] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  /** This user's own share token, once known. Null means not shared. */
+  /** The open chart's share token, once known. Null means not shared. */
   const [shareId, setShareId] = useState<string | null>(null);
+
+  /** Every chart this user owns — names only, not their contents. */
+  const [charts, setCharts] = useState<ChartSummary[]>([]);
+  /** Row id of the chart on the board, or null before one is open. */
+  const [currentId, setCurrentId] = useState<string | null>(null);
+  const [currentName, setCurrentName] = useState("");
+  /**
+   * Set once the list has come back. Derived rather than a `loading` flag that
+   * an effect has to switch on synchronously, which would cascade a render
+   * before the fetch had even started.
+   */
+  const [chartsLoaded, setChartsLoaded] = useState(false);
+  const [chartsError, setChartsError] = useState<string | null>(null);
 
   const [jsonOpen, setJsonOpen] = useState(false);
   const [jsonSeed, setJsonSeed] = useState("");
@@ -569,6 +601,13 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
 
   // ---- image import ---------------------------------------------------
 
+  /**
+   * Whether an import has anywhere to go other than over the top of what is on
+   * screen. False when signed out or visiting someone else's board — there is
+   * no file list to add to in either case.
+   */
+  const canAddNew = Boolean(user && !visiting && supabaseConfigured);
+
   const importDoc = useCallback(
     (next: FlowchartDocument, fixes: string[]) => {
       applyDoc(next);
@@ -577,8 +616,7 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
     [applyDoc],
   );
 
-  // Paste anywhere on the page, except while typing in a field. Text that
-  // looks like a chart is imported straight in.
+  // Paste anywhere on the page, except while typing in a field.
   useEffect(() => {
     function onPaste(event: ClipboardEvent) {
       const target = event.target as HTMLElement | null;
@@ -589,18 +627,19 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
       event.preventDefault();
 
       const result = parseDocument(text);
-      if (result.doc && result.repairs.length === 0) {
-        // Clean paste — skip the dialog entirely.
+      // With a file list, even a clean paste has to ask where it should land —
+      // it is the one action that can destroy a chart, and the autosave makes
+      // that permanent before there is time to notice.
+      if (result.doc && result.repairs.length === 0 && !canAddNew) {
         importDoc(result.doc, []);
         return;
       }
-      // Anything needing a second look opens the dialog with the text in place.
       setJsonSeed(text);
       setJsonOpen(true);
     }
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
-  }, [importDoc]);
+  }, [importDoc, canAddNew]);
 
   // The `fitView` prop frames desktop-style on mount; once the media query
   // resolves, a phone needs the readable framing instead.
@@ -720,55 +759,234 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
     };
   }, []);
 
-  // Pull the user's saved chart in when they sign in. Not while visiting a
-  // share link — that would replace the chart they followed the link to see.
+  /**
+   * Open a chart, first flushing anything the autosave timer has not written.
+   *
+   * `hydrated` goes false for the duration. Without that, the autosave effect
+   * would see the outgoing document still on screen next to the incoming id
+   * and write one over the other.
+   */
+  const openChart = useCallback(
+    async (id: string) => {
+      if (id === currentId) return;
+
+      if (currentId && hydrated && savedDoc !== doc) await saveChart(currentId, doc);
+      setHydrated(false);
+
+      const result = await loadChart(id);
+      if (result.error || !result.doc) {
+        setSaveError(result.error);
+        // Whatever went wrong, the row is not usable — drop it from the list
+        // rather than leaving a row that cannot be opened.
+        if (result.error?.includes("no longer exists")) {
+          setCharts((prev) => prev.filter((c) => c.id !== id));
+        }
+        return;
+      }
+
+      applyDoc(result.doc);
+      setSavedDoc(result.doc);
+      setCurrentId(id);
+      setCurrentName(result.name ?? nameFor(result.doc));
+      setShareId(result.shareId ?? null);
+      if (result.repairs.length) setRepairs(result.repairs);
+      setSaveError(null);
+      setHydrated(true);
+    },
+    [currentId, hydrated, savedDoc, doc, applyDoc],
+  );
+
+  // Keep a ref so effects can open a chart without taking the callback as a
+  // dependency and re-running every time the document changes.
+  const openChartRef = useRef(openChart);
+  useEffect(() => {
+    openChartRef.current = openChart;
+  }, [openChart]);
+
+  // Pull the user's charts in when they sign in. Not while visiting a share
+  // link — that would replace the chart they followed the link to see.
   useEffect(() => {
     if (!user || !shareChecked || visiting) return;
 
     let cancelled = false;
+
     void (async () => {
-      const result = await loadChart(user.id);
+      const { charts: list, error } = await listCharts(user.id);
       if (cancelled) return;
 
-      if (result.error) {
+      setChartsLoaded(true);
+      if (error) {
         // Leave `hydrated` false: a failed read must not be followed by a
         // write, or an unreadable row gets replaced by whatever is on screen.
-        setSaveError(result.error);
+        setChartsError(error);
         return;
       }
-      if (result.doc) {
-        applyDoc(result.doc);
-        setSavedDoc(result.doc);
-      } else {
-        // Nothing stored yet — the board they are looking at becomes theirs.
-        setSavedDoc(null);
+      setChartsError(null);
+      setCharts(list);
+
+      if (list.length === 0) {
+        // Nothing stored yet — the board they are looking at becomes their
+        // first chart, so a new account does not start on an empty canvas.
+        const created = await createChart(user.id, nameFor(doc), doc);
+        if (cancelled) return;
+        if (created.error || !created.id) {
+          setSaveError(created.error);
+          return;
+        }
+        setCharts([
+          { id: created.id, name: nameFor(doc), shareId: null, updatedAt: "" },
+        ]);
+        setCurrentId(created.id);
+        setCurrentName(nameFor(doc));
+        setSavedDoc(doc);
+        setShareId(null);
+        setHydrated(true);
+        return;
       }
-      if (result.repairs.length) setRepairs(result.repairs);
-      setShareId(result.shareId ?? null);
-      setSaveError(null);
-      setHydrated(true);
+
+      // Reopen whatever they were last looking at; failing that, the most
+      // recently updated, which is what the list is already sorted by.
+      const remembered = window.localStorage.getItem(lastChartKey(user.id));
+      const wanted = list.find((c) => c.id === remembered) ?? list[0];
+      await openChartRef.current(wanted.id);
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [user, applyDoc, shareChecked, visiting]);
+    // `doc` is read only to seed a first chart, and re-running on every edit
+    // would re-list constantly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, shareChecked, visiting]);
+
+  // Remember the open chart per user, so a reload comes back to it.
+  useEffect(() => {
+    if (!user || !currentId || visiting) return;
+    window.localStorage.setItem(lastChartKey(user.id), currentId);
+  }, [user, currentId, visiting]);
 
   // Write back after a pause in editing. A visited chart is a throwaway copy,
   // so edits to it must never reach the viewer's own row.
   useEffect(() => {
-    if (!user || !hydrated || visiting || savedDoc === doc) return;
+    if (!user || !currentId || !hydrated || visiting || savedDoc === doc) return;
 
     const timer = setTimeout(async () => {
       setSaving(true);
-      const error = await saveChart(user.id, doc);
+      const error = await saveChart(currentId, doc);
+
+      // A paste can change the chart's title, and the file list shows the
+      // name. Keep them in step rather than letting the list go stale.
+      const title = nameFor(doc);
+      if (!error && title !== currentName) {
+        const failed = await renameChart(currentId, title);
+        if (!failed) {
+          setCurrentName(title);
+          setCharts((prev) =>
+            prev.map((c) => (c.id === currentId ? { ...c, name: title } : c)),
+          );
+        }
+      }
+
       setSaving(false);
       setSaveError(error);
       if (!error) setSavedDoc(doc);
     }, AUTOSAVE_DELAY_MS);
 
     return () => clearTimeout(timer);
-  }, [doc, user, hydrated, savedDoc, visiting]);
+  }, [doc, user, currentId, hydrated, savedDoc, visiting, currentName]);
+
+  // ---- file actions -----------------------------------------------------
+
+  const createNewChart = useCallback(
+    async (seed?: FlowchartDocument, wantedName?: string) => {
+      if (!user) return;
+      if (currentId && hydrated && savedDoc !== doc) await saveChart(currentId, doc);
+
+      const next = seed ?? newChartDoc();
+      const name = uniqueName(wantedName ?? nameFor(next), charts.map((c) => c.name));
+      const created = await createChart(user.id, name, next);
+      if (created.error || !created.id) {
+        setSaveError(created.error);
+        return;
+      }
+
+      setCharts((prev) => [
+        { id: created.id!, name, shareId: null, updatedAt: "" },
+        ...prev,
+      ]);
+      setHydrated(false);
+      applyDoc(next);
+      setSavedDoc(next);
+      setCurrentId(created.id);
+      setCurrentName(name);
+      setShareId(null);
+      setSaveError(null);
+      setHydrated(true);
+    },
+    [user, currentId, hydrated, savedDoc, doc, charts, applyDoc],
+  );
+
+  const duplicateChart = useCallback(
+    async (id: string) => {
+      if (!user) return;
+
+      // Copying the open chart uses what is on screen, unsaved edits and all
+      // — copying what is in the database would silently drop them.
+      if (id === currentId) {
+        await createNewChart(doc, `${currentName || nameFor(doc)} copy`);
+        return;
+      }
+
+      const loaded = await loadChart(id);
+      if (!loaded.doc) {
+        setSaveError(loaded.error ?? "That chart could not be copied.");
+        return;
+      }
+      await createNewChart(loaded.doc, `${loaded.name ?? nameFor(loaded.doc)} copy`);
+    },
+    [user, currentId, doc, currentName, createNewChart],
+  );
+
+  const removeChart = useCallback(
+    async (id: string) => {
+      if (!user) return;
+      const error = await deleteChart(id);
+      if (error) {
+        setSaveError(error);
+        return;
+      }
+
+      const left = charts.filter((c) => c.id !== id);
+      setCharts(left);
+      if (id !== currentId) return;
+
+      // The open chart just went away. Move to another, or start fresh so the
+      // board is never left showing something that no longer exists.
+      setCurrentId(null);
+      setHydrated(false);
+      if (left.length) await openChartRef.current(left[0].id);
+      else await createNewChart(newChartDoc());
+    },
+    [user, charts, currentId, createNewChart],
+  );
+
+  const renameCurrent = useCallback(
+    async (id: string, name: string) => {
+      const error = await renameChart(id, name);
+      if (error) {
+        setSaveError(error);
+        return;
+      }
+      setCharts((prev) => prev.map((c) => (c.id === id ? { ...c, name } : c)));
+      if (id !== currentId) return;
+
+      setCurrentName(name);
+      // The name and the chart's own title are the same thing to a user, so a
+      // rename moves both — otherwise the header keeps the old one.
+      setDoc((prev) => ({ ...prev, main: { ...prev.main, title: name } }));
+    },
+    [currentId],
+  );
 
   // A visited chart is nobody's to save, so the account panel says so rather
   // than sitting on "All changes saved" while nothing is being written.
@@ -913,16 +1131,42 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
 
   // Both layouts render the same panels; only the arrangement differs.
   const accountPanel = (
-    <AccountPanel
-      user={user}
-      saveState={saveState}
-      onSignedOut={() => {
-        setUser(null);
-        setSavedDoc(null);
-        setHydrated(false);
-        setSaveError(null);
-      }}
-    />
+    <>
+      <AccountPanel
+        user={user}
+        saveState={saveState}
+        onSignedOut={() => {
+          setUser(null);
+          setSavedDoc(null);
+          setHydrated(false);
+          setSaveError(null);
+          // Everything below is the signed-out user's; none of it belongs to
+          // whoever signs in next.
+          setCharts([]);
+          setCurrentId(null);
+          setCurrentName("");
+          setShareId(null);
+          setChartsError(null);
+          setChartsLoaded(false);
+          applyDoc(SAMPLE_DOC);
+        }}
+      />
+      {/* No file list while visiting: those charts are not loaded, and the
+          banner already offers the way back to them. */}
+      {user && !visiting && (
+        <FilePanel
+          charts={charts}
+          currentId={currentId}
+          loading={!chartsLoaded}
+          error={chartsError}
+          onOpen={(id) => void openChart(id)}
+          onCreate={() => void createNewChart()}
+          onRename={(id, name) => void renameCurrent(id, name)}
+          onDuplicate={(id) => void duplicateChart(id)}
+          onDelete={(id) => void removeChart(id)}
+        />
+      )}
+    </>
   );
   const importPanel = (
     <ImportPanel
@@ -1007,7 +1251,7 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
           setJsonSeed("");
           setJsonOpen(true);
         }}
-        userId={user?.id ?? null}
+        chartId={currentId}
         shareId={shareId}
         onShareIdChange={setShareId}
         saveDirty={saveState.kind === "dirty" || saveState.kind === "saving"}
@@ -1038,8 +1282,14 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
       {jsonOpen && (
         <JsonImportDialog
           initialText={jsonSeed}
+          canAddNew={canAddNew}
+          currentName={currentName || doc.main.title || "this chart"}
           onClose={() => setJsonOpen(false)}
-          onImport={importDoc}
+          onImport={(next, fixes, target) => {
+            setRepairs(fixes);
+            if (target === "new") void createNewChart(next);
+            else importDoc(next, fixes);
+          }}
         />
       )}
 
@@ -1236,7 +1486,7 @@ function BoardHeader({
   doc,
   onRelayout,
   onPasteJson,
-  userId,
+  chartId,
   shareId,
   onShareIdChange,
   saveDirty,
@@ -1245,7 +1495,7 @@ function BoardHeader({
   doc: FlowchartDocument;
   onRelayout: () => void;
   onPasteJson: () => void;
-  userId: string | null;
+  chartId: string | null;
   shareId: string | null;
   onShareIdChange: (shareId: string | null) => void;
   saveDirty: boolean;
@@ -1318,7 +1568,7 @@ function BoardHeader({
           <SharePanel
             // While visiting, the live half would publish somebody else's
             // chart under this user's name, so only the snapshot is offered.
-            userId={visiting ? null : userId}
+            chartId={visiting ? null : chartId}
             shareId={visiting ? null : shareId}
             onShareIdChange={onShareIdChange}
             json={JSON.stringify(payload)}
