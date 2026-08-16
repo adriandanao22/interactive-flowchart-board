@@ -24,8 +24,14 @@ interface Props {
   chartKey: string | null;
   /** Label lookup for showing what a comment is pinned to. */
   labelFor: (chartKey: string | null, nodeId: string) => string | null;
-  /** Null when this viewer cannot post — the author reading their own thread. */
+  /** Null when this viewer cannot post at all. */
   onPost: ((body: string, author: string, nodeId: string | null) => Promise<string | null>) | null;
+  /**
+   * Set when the viewer is the chart's author. Their name comes from their
+   * account rather than a text box, and the copy changes: on their own board
+   * this doubles as a place to leave notes, shared or not.
+   */
+  authorName?: string | null;
   /** Null when this viewer cannot delete — anyone who is not the author. */
   onDelete: ((id: string) => void) | null;
   /** Author-only switch. Null hides it. */
@@ -43,6 +49,7 @@ export function CommentsPanel({
   labelFor,
   onPost,
   onDelete,
+  authorName,
   commentsEnabled,
   onToggleEnabled,
 }: Props) {
@@ -50,7 +57,8 @@ export function CommentsPanel({
   // — but only until they change it, which the null-means-untouched holds.
   const remembered = useStored(COMMENT_NAME_KEY);
   const [typedAuthor, setTypedAuthor] = useState<string | null>(null);
-  const author = typedAuthor ?? remembered;
+  const isOwner = Boolean(authorName);
+  const author = isOwner ? authorName! : (typedAuthor ?? remembered);
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -81,7 +89,7 @@ export function CommentsPanel({
       setProblem(failed);
       return;
     }
-    window.localStorage.setItem(COMMENT_NAME_KEY, author.trim());
+    if (!isOwner) window.localStorage.setItem(COMMENT_NAME_KEY, author.trim());
     setBody("");
   }
 
@@ -113,9 +121,11 @@ export function CommentsPanel({
 
       {!loading && comments.length === 0 && !error && (
         <p className="text-xs leading-relaxed text-muted-fg">
-          {onPost
-            ? "Nothing yet. Click a shape to ask about it, or leave a note about the chart as a whole."
-            : "No comments yet. They appear here as people who have your share link leave them."}
+          {isOwner
+            ? "Nothing yet. Leave yourself a note on any shape, and anything people say through your share link turns up here too."
+            : onPost
+              ? "Nothing yet. Click a shape to ask about it, or leave a note about the chart as a whole."
+              : "No comments yet."}
         </p>
       )}
 
@@ -154,19 +164,21 @@ export function CommentsPanel({
               <>About the whole chart. Click a shape to pin your question to it.</>
             )}
           </p>
-          <input
-            value={author}
-            onChange={(event) => setTypedAuthor(event.target.value)}
-            maxLength={AUTHOR_MAX}
-            placeholder="Your name"
-            className="w-full rounded-md border border-line bg-surface-muted px-2.5 py-1.5 text-sm outline-none focus:border-accent"
-          />
+          {!isOwner && (
+            <input
+              value={author}
+              onChange={(event) => setTypedAuthor(event.target.value)}
+              maxLength={AUTHOR_MAX}
+              placeholder="Your name"
+              className="w-full rounded-md border border-line bg-surface-muted px-2.5 py-1.5 text-sm outline-none focus:border-accent"
+            />
+          )}
           <textarea
             value={body}
             onChange={(event) => setBody(event.target.value)}
             maxLength={BODY_MAX}
             rows={3}
-            placeholder="Ask a question or leave a note…"
+            placeholder={isOwner ? "Reply, or leave yourself a note…" : "Ask a question or leave a note…"}
             className="w-full resize-y rounded-md border border-line bg-surface-muted px-2.5 py-1.5 text-sm outline-none focus:border-accent"
           />
           {problem && (
@@ -179,11 +191,12 @@ export function CommentsPanel({
             disabled={busy}
             className="w-full rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg disabled:opacity-50"
           >
-            {busy ? "Posting…" : "Post comment"}
+            {busy ? "Posting…" : isOwner ? "Post as author" : "Post comment"}
           </button>
           <p className="text-[11px] leading-relaxed text-muted-fg">
-            Everyone with this link can read what you write, and the chart&rsquo;s
-            author can delete it.
+            {isOwner
+              ? "Posted as you, and marked as the author. Anyone holding a share link to this chart can read it."
+              : "Everyone with this link can read what you write, and the chart’s author can delete it."}
           </p>
         </form>
       )}
@@ -220,6 +233,15 @@ function Thread({
             <li key={comment.id} className="rounded-md border border-line bg-surface-muted px-2.5 py-2">
               <div className="flex items-baseline gap-2">
                 <span className="min-w-0 truncate text-xs font-semibold">{comment.author}</span>
+                {comment.fromAuthor && (
+                  <span
+                    className="shrink-0 rounded-full px-1.5 py-px text-[10px] font-bold tracking-wide uppercase"
+                    style={{ background: "var(--accent)", color: "var(--accent-fg)" }}
+                    title="Written by the person who made this chart"
+                  >
+                    author
+                  </span>
+                )}
                 <span className="shrink-0 text-[11px] text-muted-fg">
                   {relativeTime(comment.createdAt, now)}
                 </span>

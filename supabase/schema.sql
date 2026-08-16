@@ -142,6 +142,10 @@ alter table public.flowcharts
 create table if not exists public.chart_comments (
   id         uuid        primary key default gen_random_uuid(),
   chart_id   uuid        not null references public.flowcharts (id) on delete cascade,
+  -- Set only when the chart's own author posted, which is what lets a reply
+  -- be marked as coming from them. Visitors have no account, so theirs is
+  -- null — and the insert policy below is what makes that trustworthy.
+  user_id    uuid        references auth.users (id) on delete set null,
   -- Which shape this is pinned to, and which chart of the document it lives
   -- in (null chart_key is the main chart). Both null is a comment on the
   -- whole thing.
@@ -157,6 +161,10 @@ create table if not exists public.chart_comments (
   constraint chart_comments_key_len     check (chart_key is null or char_length(chart_key) <= 64)
 );
 
+-- For a table created before author comments existed.
+alter table public.chart_comments
+  add column if not exists user_id uuid references auth.users (id) on delete set null;
+
 create index if not exists chart_comments_chart_idx
   on public.chart_comments (chart_id, created_at);
 
@@ -165,11 +173,29 @@ alter table public.chart_comments enable row level security;
 -- The author's own access. Visitors get nothing here — they go through the
 -- functions below, which is what makes holding the token a requirement.
 drop policy if exists "read comments on own charts"   on public.chart_comments;
+drop policy if exists "write comments on own charts"  on public.chart_comments;
 drop policy if exists "delete comments on own charts" on public.chart_comments;
 
 create policy "read comments on own charts" on public.chart_comments
   for select using (
     exists (
+      select 1 from public.flowcharts f
+      where f.id = chart_comments.chart_id and f.user_id = auth.uid()
+    )
+  );
+
+-- The author writes directly rather than through a share token: they may be
+-- replying to a question, or simply leaving themselves a note on a chart that
+-- has never been shared.
+--
+-- Both halves of the check matter. `user_id = auth.uid()` stops a comment
+-- being attributed to anyone else, and the `exists` stops it being attached to
+-- a chart you do not own. Together they are what makes a non-null `user_id`
+-- reliable proof that the chart's own author wrote it.
+create policy "write comments on own charts" on public.chart_comments
+  for insert with check (
+    user_id = auth.uid()
+    and exists (
       select 1 from public.flowcharts f
       where f.id = chart_comments.chart_id and f.user_id = auth.uid()
     )
@@ -185,14 +211,24 @@ create policy "delete comments on own charts" on public.chart_comments
 
 -- Read the thread for a share token. Same shape of argument as
 -- `shared_chart`: one token in, one chart's comments out, no way to enumerate.
+--
+-- `from_author` rather than the raw user_id: a visitor needs to know which
+-- replies came from the person who made the chart, and nothing more. Handing
+-- out the owner's account id would be a needless leak.
+drop function if exists public.shared_comments(uuid);
+
 create or replace function public.shared_comments(token uuid)
-returns table (id uuid, node_id text, chart_key text, author text, body text, created_at timestamptz)
+returns table (
+  id uuid, node_id text, chart_key text, author text, body text,
+  created_at timestamptz, from_author boolean
+)
 language sql
 security definer
 set search_path = public
 stable
 as $$
-  select c.id, c.node_id, c.chart_key, c.author, c.body, c.created_at
+  select c.id, c.node_id, c.chart_key, c.author, c.body, c.created_at,
+         c.user_id is not null as from_author
     from public.chart_comments c
     join public.flowcharts f on f.id = c.chart_id
    where f.share_id = token

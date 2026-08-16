@@ -56,6 +56,7 @@ import {
   listSharedComments,
   pinKey,
   postComment,
+  postOwnComment,
   setCommentsEnabled,
   type Comment,
 } from "@/lib/comments";
@@ -72,7 +73,7 @@ import {
   saveChart,
   uniqueName,
 } from "@/lib/storage";
-import { getSupabase, supabaseConfigured } from "@/lib/supabase";
+import { displayName, getSupabase, supabaseConfigured } from "@/lib/supabase";
 import {
   INITIAL_RUN,
   calleeOf,
@@ -810,19 +811,38 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
     };
   }, [visiting, currentId]);
 
+  /**
+   * Post to the thread, by whichever route the poster is entitled to.
+   *
+   * A visitor goes through the share token. The author writes directly, which
+   * also means they can leave notes on a chart that has never been shared.
+   * Either way the thread is re-read afterwards rather than appended to
+   * locally: the database stamps and orders the row, and anyone else's
+   * comments arrive in the same trip.
+   */
   const addComment = useCallback(
     async (body: string, author: string, nodeId: string | null) => {
-      if (visiting?.kind !== "live") return "This chart is not open for comments.";
-      const failed = await postComment(visiting.token, author, body, nodeId, editingKey);
-      if (failed) return failed;
-      // Re-read rather than appending locally: the row is stamped and ordered
-      // by the database, and anyone else's comments arrive at the same time.
-      const result = await listSharedComments(visiting.token);
-      setComments(result.comments);
-      setCommentsError(result.error);
-      return null;
+      if (visiting?.kind === "live") {
+        const failed = await postComment(visiting.token, author, body, nodeId, editingKey);
+        if (failed) return failed;
+        const result = await listSharedComments(visiting.token);
+        setComments(result.comments);
+        setCommentsError(result.error);
+        return null;
+      }
+
+      if (!visiting && user && currentId) {
+        const failed = await postOwnComment(currentId, user.id, author, body, nodeId, editingKey);
+        if (failed) return failed;
+        const result = await listOwnComments(currentId);
+        setComments(result.comments);
+        setCommentsError(result.error);
+        return null;
+      }
+
+      return "This chart is not open for comments.";
     },
-    [visiting, editingKey],
+    [visiting, editingKey, user, currentId],
   );
 
   const removeComment = useCallback(async (id: string) => {
@@ -1321,7 +1341,8 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
           selectedNodeLabel={selectedNode?.label ?? null}
           chartKey={editingKey}
           labelFor={labelForPin}
-          onPost={visiting?.kind === "live" ? addComment : null}
+          onPost={visiting?.kind === "live" || (!visiting && user) ? addComment : null}
+          authorName={!visiting && user ? displayName(user) : null}
           onDelete={visiting ? null : (id) => void removeComment(id)}
           commentsEnabled={visiting ? undefined : commentsOn}
           onToggleEnabled={

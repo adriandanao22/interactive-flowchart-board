@@ -406,7 +406,13 @@ function buildSections(onPreview: (example: GuideExample) => void): Section[] {
             it, and that shape then shows a 💬 badge, so &ldquo;why does this
             diamond go left?&rdquo; points at the diamond. Everyone with the
             link sees the same thread. On your own board you can read them all,
-            delete any of them, and switch off new ones.
+            reply — your replies are badged <i>author</i> — delete any of them,
+            and switch off new ones.
+          </p>
+          <p>
+            The same panel works on charts you have never shared, so it doubles
+            as somewhere to leave <b>notes to yourself</b>: pin a reminder to
+            the shape it is about and it is there next time you open the chart.
           </p>
           <p className="text-xs text-muted-fg">
             <i>Copy JSON</i> gives you the chart as text, and <i>Paste JSON</i>{" "}

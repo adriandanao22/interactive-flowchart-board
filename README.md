@@ -161,11 +161,16 @@ board. *Back to my board* returns to it.
 account: they type a name, and it goes in the sidebar. Selecting a shape first
 pins the comment to that shape, which then carries a 💬 badge with the count;
 with nothing selected the comment is about the chart as a whole. Everyone with
-the link reads the same thread, so a question gets asked once. You see them all
-on your own board, can delete any of them, and can stop accepting new ones with
-the *Accept new* switch. Deleting a shape does not delete what somebody said
-about it — those comments stay, marked as attached to a shape that has since
-been removed.
+the link reads the same thread, so a question gets asked once. Deleting a shape
+does not delete what somebody said about it — those comments stay, marked as
+attached to a shape that has since been removed.
+
+You can post too, on any chart you own. Your name comes from your account
+rather than a text box, and your comments are badged **author** so a reader can
+tell a reply from a question. This works whether or not the chart is shared, so
+the same panel doubles as **notes to yourself** — pin a reminder to the shape it
+concerns and it is waiting there next time. You can also delete any comment,
+and stop accepting new ones with the *Accept new* switch.
 
 Snapshot links have no row behind them, so they cannot carry comments.
 
@@ -174,7 +179,11 @@ stranger can write to your database, so the protection is in the schema rather
 than the client. There is no anon policy on the comments table at all — reading
 and posting both go through `security definer` functions that take a share
 token and resolve exactly one chart, so a token is the whole of the
-authorisation and there is no way to enumerate other charts' threads. Inside
+authorisation and there is no way to enumerate other charts' threads. The
+author's own posts skip the token and go through an insert policy that checks
+two things at once — that the comment is attributed to the poster, and that the
+chart belongs to them — which is what makes the **author** badge trustworthy
+rather than a name anyone could type. Inside
 the insert function are the caps that a valid token does not get you past:
 40 characters of name, 2,000 of body, 10 comments per chart per minute, 500 per
 chart in total. Those are caps, not authentication — someone determined who has
