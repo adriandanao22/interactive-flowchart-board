@@ -1,3 +1,5 @@
+import { useId } from "react";
+
 import type { NodeKind } from "@/lib/flowchart";
 
 /**
@@ -12,12 +14,23 @@ export function ShapeOutline({
   width: w,
   height: h,
   strokeWidth = 1.75,
+  splitWith,
 }: {
   kind: NodeKind;
   width: number;
   height: number;
   strokeWidth?: number;
+  /**
+   * Paint the right half in a second kind's colours, divided down the middle.
+   *
+   * Only the palette's terminator button uses this: START and END are the same
+   * drawn shape, so one button has to stand for both, and showing the two
+   * colours on the one stadium says that far better than picking a side. A
+   * node on the canvas is always definitively one or the other.
+   */
+  splitWith?: NodeKind;
 }) {
+  const clipId = useId();
   const i = strokeWidth / 2; // keep the stroke inside the viewBox
   const fill = `var(--${kind}-fill)`;
   const stroke = `var(--${kind}-stroke)`;
@@ -39,7 +52,41 @@ export function ShapeOutline({
       aria-hidden
     >
       {(kind === "start" || kind === "end") && (
-        <rect x={i} y={i} width={w - strokeWidth} height={h - strokeWidth} rx={(h - strokeWidth) / 2} {...common} />
+        <>
+          <rect x={i} y={i} width={w - strokeWidth} height={h - strokeWidth} rx={(h - strokeWidth) / 2} {...common} />
+          {splitWith && (
+            <>
+              {/* The same stadium again in the other kind's colours, showing
+                  only its right half, then a rule down the join. */}
+              <defs>
+                <clipPath id={clipId}>
+                  <rect x={w / 2} y={0} width={w / 2} height={h} />
+                </clipPath>
+              </defs>
+              <g clipPath={`url(#${clipId})`}>
+                <rect
+                  x={i}
+                  y={i}
+                  width={w - strokeWidth}
+                  height={h - strokeWidth}
+                  rx={(h - strokeWidth) / 2}
+                  fill={`var(--${splitWith}-fill)`}
+                  stroke={`var(--${splitWith}-stroke)`}
+                  strokeWidth={strokeWidth}
+                  strokeLinejoin="round"
+                />
+              </g>
+              <line
+                x1={w / 2}
+                y1={i}
+                x2={w / 2}
+                y2={h - i}
+                stroke={`var(--${splitWith}-stroke)`}
+                strokeWidth={strokeWidth}
+              />
+            </>
+          )}
+        </>
       )}
 
       {kind === "process" && (

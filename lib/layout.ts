@@ -215,8 +215,11 @@ export function edgeStyleFor(spec: FlowEdgeSpec, routing: EdgeRouting): BoardEdg
 
 /** Placeholder text for a freshly added shape — a hint, not a real label. */
 export const DEFAULT_LABEL: Record<NodeKind, string> = {
-  start: "Start",
-  end: "End",
+  // Upper case, matching how terminators are drawn in every textbook and in
+  // the sample. Switching a terminator's direction rewrites the label when it
+  // is still one of these, so a shape reading START is never actually an end.
+  start: "START",
+  end: "END",
   process: "Do something",
   decision: "Condition?",
   io: "Input / output",
@@ -224,6 +227,35 @@ export const DEFAULT_LABEL: Record<NodeKind, string> = {
   connector: "A",
   preparation: "int count = 0",
 };
+
+/**
+ * Which terminator the single palette button should actually drop.
+ *
+ * One button stands for both ends, so pick the one obviously wanted: a chart
+ * with no start needs one, and after that the next terminator is almost
+ * always the end. The sidebar toggle fixes it in a click when this guesses
+ * wrong. Any other kind passes straight through.
+ */
+export function kindToAdd(wanted: NodeKind, existing: readonly { kind: NodeKind }[]): NodeKind {
+  if (wanted !== "start") return wanted;
+  return existing.some((node) => node.kind === "start") ? "end" : "start";
+}
+
+/**
+ * The label a shape should carry after its kind changes.
+ *
+ * Flipping a terminator rewrites the label, but only while it is still the
+ * untouched default — otherwise switching would leave a shape reading "START"
+ * at the end of the chart. A label somebody wrote themselves is never
+ * overwritten, and neither is anything that is not a terminator.
+ */
+export function relabelForKind(label: string, from: NodeKind, to: NodeKind): string {
+  const terminator = (kind: NodeKind) => kind === "start" || kind === "end";
+  if (!terminator(from) || !terminator(to)) return label;
+  return label.trim().toLowerCase() === DEFAULT_LABEL[from].toLowerCase()
+    ? DEFAULT_LABEL[to]
+    : label;
+}
 
 /** Next free `nN` id, so added shapes keep the same naming as imported ones. */
 export function nextNodeId(existing: readonly { id: string }[]): string {

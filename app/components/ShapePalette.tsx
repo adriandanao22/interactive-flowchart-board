@@ -2,7 +2,7 @@
 
 import { Panel } from "@xyflow/react";
 
-import { KIND_INFO, NODE_KINDS, type NodeKind } from "@/lib/flowchart";
+import { KIND_INFO, PALETTE_KINDS, type NodeKind } from "@/lib/flowchart";
 
 import { ShapeOutline } from "./ShapeOutline";
 
@@ -27,8 +27,12 @@ const PREVIEW_W = 34;
 const PREVIEW_H = 22;
 
 /**
- * Floating palette of the eight shapes. Click to drop one into the middle of
- * the view, or drag one onto the canvas to place it exactly.
+ * Floating palette. Click to drop a shape into the middle of the view, or drag
+ * one onto the canvas to place it exactly.
+ *
+ * Seven buttons for eight kinds: start and end are the same drawn shape, so
+ * they share an entry and the board picks the direction. Two identical
+ * stadiums side by side told the reader nothing the colours did not.
  */
 export function ShapePalette({
   onAdd,
@@ -96,7 +100,7 @@ export function ShapePalette({
             Add
           </p>
         )}
-        {NODE_KINDS.map((kind) => (
+        {PALETTE_KINDS.map((kind) => (
           <button
             key={kind}
             type="button"
@@ -106,8 +110,12 @@ export function ShapePalette({
               event.dataTransfer.effectAllowed = "copy";
             }}
             onClick={() => onAdd(kind)}
-            title={`${KIND_INFO[kind].name} — click to add, or drag onto the canvas`}
-            aria-label={`Add ${KIND_INFO[kind].name}`}
+            title={
+              kind === "start"
+                ? "Terminator — adds START, or END once the chart has a start. Switch it in the sidebar."
+                : `${KIND_INFO[kind].name} — click to add, or drag onto the canvas`
+            }
+            aria-label={kind === "start" ? "Add terminator" : `Add ${KIND_INFO[kind].name}`}
             className="relative shrink-0 cursor-grab rounded p-1 hover:bg-surface-muted active:cursor-grabbing"
           >
             <span
@@ -119,6 +127,8 @@ export function ShapePalette({
                 width={PREVIEW_W}
                 height={PREVIEW_H}
                 strokeWidth={1.25}
+                // The one button stands for both terminators, so show both.
+                splitWith={kind === "start" ? "end" : undefined}
               />
             </span>
           </button>

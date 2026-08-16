@@ -39,14 +39,26 @@ import {
   DEFAULT_LABEL,
   edgeStyleFor,
   freePosition,
+  kindToAdd,
   layoutSpec,
   measureNode,
   nextNodeId,
+  relabelForKind,
   type BoardNode,
   type HandleId,
 } from "@/lib/layout";
 import { looksLikeSpec, parseDocument } from "@/lib/parse";
 import { useIsMobile } from "@/lib/useMediaQuery";
+import {
+  commentsByNode,
+  deleteComment,
+  listOwnComments,
+  listSharedComments,
+  pinKey,
+  postComment,
+  setCommentsEnabled,
+  type Comment,
+} from "@/lib/comments";
 import { decodeSnapshot, isShareToken, snapshotFromHash } from "@/lib/share";
 import {
   type ChartSummary,
@@ -79,6 +91,7 @@ import { AccountPanel, type SaveState } from "./AccountPanel";
 import { ChartBar } from "./ChartBar";
 import { Console } from "./Console";
 import { FilePanel } from "./FilePanel";
+import { CommentsPanel } from "./CommentsPanel";
 import { GuidePanel } from "./GuidePanel";
 import { ImportPanel } from "./ImportPanel";
 import { SharePanel } from "./SharePanel";
@@ -191,6 +204,12 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
    */
   const [chartsLoaded, setChartsLoaded] = useState(false);
   const [chartsError, setChartsError] = useState<string | null>(null);
+
+  /** The thread on whichever chart is on screen — shared or your own. */
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [commentsError, setCommentsError] = useState<string | null>(null);
+  const [commentsLoaded, setCommentsLoaded] = useState(false);
+  const [commentsOn, setCommentsOn] = useState(true);
 
   const [guideOpen, setGuideOpen] = useState(false);
   const [jsonOpen, setJsonOpen] = useState(false);
@@ -357,17 +376,30 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
     [setSpec],
   );
 
+  /**
+   * Change a shape's kind, carrying its label across.
+   *
+   * Flipping a terminator between START and END rewrites the label too, but
+   * only when it is still the untouched default — otherwise switching would
+   * leave a shape reading "START" sitting at the end of the chart. A label
+   * somebody actually wrote ("Return letter") is never overwritten.
+   */
   const rekindNode = useCallback(
     (id: string, kind: NodeKind) => {
+      const relabel = (label: string, from: NodeKind) => relabelForKind(label, from, kind);
+
       setSpec((prev) => ({
         ...prev,
-        nodes: prev.nodes.map((n) => (n.id === id ? { ...n, kind } : n)),
+        nodes: prev.nodes.map((n) =>
+          n.id === id ? { ...n, kind, label: relabel(n.label, n.kind) } : n,
+        ),
       }));
       setNodes((prev) =>
         prev.map((n) => {
           if (n.id !== id) return n;
-          const size = measureNode(kind, n.data.label);
-          return { ...n, ...size, data: { ...n.data, kind, ...size } };
+          const label = relabel(n.data.label, n.data.kind);
+          const size = measureNode(kind, label);
+          return { ...n, ...size, data: { ...n.data, kind, label, ...size } };
         }),
       );
     },
@@ -409,7 +441,9 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
    * shape lands in the middle of whatever the user is currently looking at.
    */
   const addNode = useCallback(
-    (kind: NodeKind, at?: { x: number; y: number }) => {
+    (wanted: NodeKind, at?: { x: number; y: number }) => {
+      // One palette button covers both terminators; this picks the direction.
+      const kind = kindToAdd(wanted, spec.nodes);
       const label = DEFAULT_LABEL[kind];
       const size = measureNode(kind, label);
 
@@ -742,6 +776,73 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
     if (!user) applyDoc(SAMPLE_DOC);
   }, [shareToken, router, user, applyDoc]);
 
+  // ---- comments ---------------------------------------------------------
+
+  /**
+   * Load the thread for whatever is on screen.
+   *
+   * Two routes in, deliberately: a visitor goes through the share token, which
+   * is the only thing authorising them; the author reads their own rows
+   * through Row Level Security. Neither can see anything the other should not.
+   */
+  useEffect(() => {
+    const token = visiting?.kind === "live" ? visiting.token : null;
+    const owned = visiting ? null : currentId;
+
+    let cancelled = false;
+    void (async () => {
+      // The "nothing to load" case goes through the same path rather than
+      // returning early, so the thread is always cleared when the chart
+      // changes and no state is set synchronously in the effect body.
+      const result = token
+        ? await listSharedComments(token)
+        : owned
+          ? await listOwnComments(owned)
+          : { comments: [], error: null };
+      if (cancelled) return;
+      setCommentsLoaded(true);
+      setCommentsError(result.error);
+      setComments(result.comments);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [visiting, currentId]);
+
+  const addComment = useCallback(
+    async (body: string, author: string, nodeId: string | null) => {
+      if (visiting?.kind !== "live") return "This chart is not open for comments.";
+      const failed = await postComment(visiting.token, author, body, nodeId, editingKey);
+      if (failed) return failed;
+      // Re-read rather than appending locally: the row is stamped and ordered
+      // by the database, and anyone else's comments arrive at the same time.
+      const result = await listSharedComments(visiting.token);
+      setComments(result.comments);
+      setCommentsError(result.error);
+      return null;
+    },
+    [visiting, editingKey],
+  );
+
+  const removeComment = useCallback(async (id: string) => {
+    const failed = await deleteComment(id);
+    if (failed) {
+      setCommentsError(failed);
+      return;
+    }
+    setComments((prev) => prev.filter((c) => c.id !== id));
+  }, []);
+
+  /** Label a comment's pinned shape, or null once that shape is gone. */
+  const labelForPin = useCallback(
+    (key: string | null, nodeId: string) => {
+      const chart = key === null ? doc.main : doc.routines[key];
+      return chart?.nodes.find((n) => n.id === nodeId)?.label ?? null;
+    },
+    [doc],
+  );
+
   // ---- account and autosave --------------------------------------------
 
   useEffect(() => {
@@ -1016,6 +1117,7 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
     for (const id of waitingNodeIds(run, editingKey)) states.set(id, "waiting");
     if (run.currentId && run.chartKey === editingKey) states.set(run.currentId, "current");
     const counts = visitCounts(run, editingKey);
+    const pins = commentsByNode(comments);
 
     return nodes.map((node) => ({
       ...node,
@@ -1023,9 +1125,10 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
         ...node.data,
         runState: states.get(node.id) ?? "none",
         visits: counts.get(node.id) ?? 0,
+        comments: pins.get(pinKey(editingKey, node.id))?.length ?? 0,
       },
     }));
-  }, [nodes, run, editingKey]);
+  }, [nodes, run, editingKey, comments]);
 
   const displayEdges = useMemo(() => {
     const taken = takenEdgeIds(run, editingKey);
@@ -1202,6 +1305,39 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
         </ul>
       </div>
     ) : null;
+  /**
+   * Shown to a visitor of a live share link (who can post) and to the chart's
+   * owner (who can read and delete). A snapshot link has no row behind it, so
+   * there is nothing to comment on.
+   */
+  const commentsPanel =
+    visiting?.kind === "live" || (currentId && !visiting) ? (
+      <div className="shrink-0 border-t border-line">
+        <CommentsPanel
+          comments={comments}
+          loading={!commentsLoaded}
+          error={commentsError}
+          selectedNodeId={selectedNode?.id ?? null}
+          selectedNodeLabel={selectedNode?.label ?? null}
+          chartKey={editingKey}
+          labelFor={labelForPin}
+          onPost={visiting?.kind === "live" ? addComment : null}
+          onDelete={visiting ? null : (id) => void removeComment(id)}
+          commentsEnabled={visiting ? undefined : commentsOn}
+          onToggleEnabled={
+            visiting || !currentId
+              ? undefined
+              : (enabled) => {
+                  setCommentsOn(enabled);
+                  void setCommentsEnabled(currentId, enabled).then(
+                    (failed) => failed && setCommentsError(failed),
+                  );
+                }
+          }
+        />
+      </div>
+    ) : null;
+
   const inspectorPanel = (
     <div className="min-h-0 flex-1 overflow-hidden border-t border-line">
       <Inspector
@@ -1451,6 +1587,7 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
         {importPanel}
         {repairsNotice}
         {inspectorPanel}
+        {commentsPanel}
         {runPanelNode}
       </aside>
 
@@ -1465,6 +1602,7 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
             {accountPanel}
             {importPanel}
             {repairsNotice}
+            {commentsPanel}
           </>
         }
       />

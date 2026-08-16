@@ -118,6 +118,147 @@ $$;
 revoke all on function public.shared_chart(uuid) from public;
 grant execute on function public.shared_chart(uuid) to anon, authenticated;
 
+-- ---------------------------------------------------------------------------
+-- Comments on a shared chart.
+--
+-- Anyone holding a share link can post, without an account. That is the point
+-- — a student should not have to sign up to ask why a diamond branches left —
+-- but it does mean an unauthenticated stranger can write to this table, so the
+-- protection has to live here rather than in the client.
+--
+-- Three things carry it:
+--   1. Neither reading nor writing is possible without the share token. There
+--      is no anon policy on this table at all; the only way in is the two
+--      functions below, which take a token and resolve exactly one chart.
+--   2. Length and rate caps inside the insert function, so a script holding a
+--      real token still cannot fill the database.
+--   3. `comments_enabled` on the chart, so the author can switch it off, and
+--      revoking the share link stops new comments outright.
+-- ---------------------------------------------------------------------------
+
+alter table public.flowcharts
+  add column if not exists comments_enabled boolean not null default true;
+
+create table if not exists public.chart_comments (
+  id         uuid        primary key default gen_random_uuid(),
+  chart_id   uuid        not null references public.flowcharts (id) on delete cascade,
+  -- Which shape this is pinned to, and which chart of the document it lives
+  -- in (null chart_key is the main chart). Both null is a comment on the
+  -- whole thing.
+  node_id    text,
+  chart_key  text,
+  author     text        not null,
+  body       text        not null,
+  created_at timestamptz not null default now(),
+
+  constraint chart_comments_author_len  check (char_length(author) between 1 and 40),
+  constraint chart_comments_body_len    check (char_length(body) between 1 and 2000),
+  constraint chart_comments_node_len    check (node_id is null or char_length(node_id) <= 64),
+  constraint chart_comments_key_len     check (chart_key is null or char_length(chart_key) <= 64)
+);
+
+create index if not exists chart_comments_chart_idx
+  on public.chart_comments (chart_id, created_at);
+
+alter table public.chart_comments enable row level security;
+
+-- The author's own access. Visitors get nothing here — they go through the
+-- functions below, which is what makes holding the token a requirement.
+drop policy if exists "read comments on own charts"   on public.chart_comments;
+drop policy if exists "delete comments on own charts" on public.chart_comments;
+
+create policy "read comments on own charts" on public.chart_comments
+  for select using (
+    exists (
+      select 1 from public.flowcharts f
+      where f.id = chart_comments.chart_id and f.user_id = auth.uid()
+    )
+  );
+
+create policy "delete comments on own charts" on public.chart_comments
+  for delete using (
+    exists (
+      select 1 from public.flowcharts f
+      where f.id = chart_comments.chart_id and f.user_id = auth.uid()
+    )
+  );
+
+-- Read the thread for a share token. Same shape of argument as
+-- `shared_chart`: one token in, one chart's comments out, no way to enumerate.
+create or replace function public.shared_comments(token uuid)
+returns table (id uuid, node_id text, chart_key text, author text, body text, created_at timestamptz)
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select c.id, c.node_id, c.chart_key, c.author, c.body, c.created_at
+    from public.chart_comments c
+    join public.flowcharts f on f.id = c.chart_id
+   where f.share_id = token
+   order by c.created_at;
+$$;
+
+-- Post to the thread for a share token.
+--
+-- Written as a function rather than an insert policy for the same reason the
+-- read is: a policy grants access to a set of rows, and this must grant
+-- exactly one chart's worth to whoever proves they hold its link.
+create or replace function public.add_shared_comment(
+  token     uuid,
+  in_author text,
+  in_body   text,
+  in_node   text default null,
+  in_key    text default null
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  target  uuid;
+  enabled boolean;
+  recent  integer;
+  total   integer;
+  new_id  uuid;
+begin
+  select f.id, f.comments_enabled into target, enabled
+    from public.flowcharts f where f.share_id = token;
+
+  if target is null then
+    raise exception 'That share link is not valid.' using errcode = 'P0002';
+  end if;
+  if not enabled then
+    raise exception 'Comments are turned off for this chart.' using errcode = 'P0001';
+  end if;
+
+  -- Caps, not authentication: a real token still cannot be used to flood.
+  select count(*) into recent from public.chart_comments c
+   where c.chart_id = target and c.created_at > now() - interval '1 minute';
+  if recent >= 10 then
+    raise exception 'Too many comments just now — wait a moment and try again.'
+      using errcode = 'P0001';
+  end if;
+
+  select count(*) into total from public.chart_comments c where c.chart_id = target;
+  if total >= 500 then
+    raise exception 'This chart has reached its comment limit.' using errcode = 'P0001';
+  end if;
+
+  insert into public.chart_comments (chart_id, node_id, chart_key, author, body)
+  values (target, nullif(in_node, ''), nullif(in_key, ''), btrim(in_author), btrim(in_body))
+  returning id into new_id;
+
+  return new_id;
+end;
+$$;
+
+revoke all on function public.shared_comments(uuid) from public;
+revoke all on function public.add_shared_comment(uuid, text, text, text, text) from public;
+grant execute on function public.shared_comments(uuid) to anon, authenticated;
+grant execute on function public.add_shared_comment(uuid, text, text, text, text) to anon, authenticated;
+
 -- Keep updated_at honest even if a client forgets to set it.
 create or replace function public.touch_updated_at()
 returns trigger language plpgsql as $$

@@ -20,6 +20,24 @@ export const NODE_KINDS = [
 
 export type NodeKind = (typeof NODE_KINDS)[number];
 
+/**
+ * Start and end are the same drawn shape — a stadium — and differ only in
+ * which end of the chart they sit at. They stay separate kinds because the
+ * runner treats them differently, but everywhere a person picks a shape they
+ * are one choice with a direction.
+ */
+export const TERMINATOR_KINDS = ["start", "end"] as const;
+
+export function isTerminator(kind: NodeKind): boolean {
+  return kind === "start" || kind === "end";
+}
+
+/**
+ * Shapes offered in the palette: the eight kinds with the two terminators
+ * collapsed into the one entry they look like.
+ */
+export const PALETTE_KINDS = NODE_KINDS.filter((kind) => kind !== "end");
+
 export interface FlowNodeSpec {
   id: string;
   kind: NodeKind;
@@ -245,22 +263,46 @@ export function lintSpec(spec: FlowchartSpec): LintWarning[] {
     add("no-end", "No end terminator — the chart never formally finishes.");
 
   // A connector deliberately has a missing arrow on one side — that is the
-  // whole notation. Only complain when it has nothing to pair with.
+  // whole notation. Only complain when the jump does not actually resolve.
+  //
+  // A letter is not limited to a pair. Several arrows may feed the same letter
+  // and all resume at one point, which is how a chart merges paths back
+  // together without drawing four arrows across the page. So the group can be
+  // any size; what must be unique is the *resume point*, the one connector
+  // with an arrow leaving it. Every other member is a jump source.
   const groups = connectorGroups(spec);
   for (const [, group] of groups) {
     const label = group[0].label;
-    if (group.length === 1) {
+    const leaves = (node: FlowNodeSpec) => (outgoing.get(node.id)?.length ?? 0) > 0;
+    const arrives = (node: FlowNodeSpec) => (incoming.get(node.id)?.length ?? 0) > 0;
+    const resume = group.filter(leaves);
+
+    if (resume.length === 0) {
       add(
         `connector-unmatched:${group[0].id}`,
-        `Connector "${label}" has no matching connector to jump to.`,
+        group.length === 1
+          ? `Connector "${label}" has no matching connector to jump to.`
+          : `No connector labelled "${label}" has an arrow leaving it, so a jump there has nowhere to land.`,
         group[0].id,
       );
-    } else if (group.length > 2) {
+    } else if (resume.length > 1) {
       add(
-        `connector-crowded:${group[0].id}`,
-        `${group.length} connectors are labelled "${label}" — a jump needs exactly one matching pair.`,
-        group[0].id,
+        `connector-ambiguous:${resume[1].id}`,
+        `${resume.length} connectors labelled "${label}" have arrows leaving them — a jump cannot tell which one to resume at.`,
+        resume[1].id,
       );
+    }
+
+    // Sharing a letter with a working jump is not enough on its own: a
+    // connector wired to nothing takes no part in it either way.
+    for (const node of group) {
+      if (!leaves(node) && !arrives(node)) {
+        add(
+          `connector-floating:${node.id}`,
+          `Connector "${label}" has no arrows at all, so nothing reaches it and nothing leaves.`,
+          node.id,
+        );
+      }
     }
   }
 

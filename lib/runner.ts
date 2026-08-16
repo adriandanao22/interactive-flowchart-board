@@ -337,6 +337,10 @@ function connectorJump(spec: FlowchartSpec, node: FlowNodeSpec): FlowNodeSpec | 
   if (node.kind !== "connector") return null;
   if (outgoingFrom(spec, node.id).length > 0) return null;
 
+  // Any number of connectors may share a letter as jump sources; the one with
+  // an arrow leaving it is where control resumes. More than one of those is
+  // ambiguous, which the linter reports — here the first in document order
+  // wins, so at least the behaviour is stable rather than arbitrary.
   const key = connectorKey(node.label);
   return (
     spec.nodes.find(
@@ -475,11 +479,22 @@ function perform(doc: FlowchartDocument, state: RunState, node: FlowNodeSpec): R
     const printed = PRINT_FORM.exec(source);
     if (printed) {
       const text = printed[1].trim();
-      const value = text ? evaluate(parseOrThrow(text), contextFor(doc, state)) : "";
-      return {
-        ...state,
-        output: [...state.output, { kind: "output", text: stringify(value), step: state.steps }],
-      };
+      // `show` is a print word, so "Show Main Menu" matches — but "Main Menu"
+      // is not an expression and the label is plainly prose describing an
+      // action. Committing to the directive and then throwing would turn a
+      // perfectly readable transcribed chart into an error on its second
+      // shape, which is the failure "what cannot be parsed stays prose" exists
+      // to prevent. Only run it when the payload actually parses; a bare
+      // `Display` with nothing after it prints a blank line.
+      const expr = text ? parseExpression(text) : null;
+      if (expr || !text) {
+        const value = expr ? evaluate(expr, contextFor(doc, state)) : "";
+        return {
+          ...state,
+          output: [...state.output, { kind: "output", text: stringify(value), step: state.steps }],
+        };
+      }
+      // Otherwise fall through: this shape is a note, and the run steps past.
     }
   }
 
@@ -495,12 +510,6 @@ function perform(doc: FlowchartDocument, state: RunState, node: FlowNodeSpec): R
   const statements = codeFor(node);
   if (!statements) return state;
   return withScope(state, applyStatements(doc, state, statements));
-}
-
-function parseOrThrow(source: string) {
-  const node = parseExpression(source);
-  if (!node) throw new ExprError(`"${source}" is not an expression.`);
-  return node;
 }
 
 /** The arguments and assignment target written on a subroutine shape. */
@@ -547,7 +556,11 @@ function returnValue(doc: FlowchartDocument, state: RunState): Value | null {
   const text = returned ? returned[1].trim() : null;
   if (!text) return null;
 
-  return evaluate(parseOrThrow(text), contextFor(doc, state));
+  // Same reasoning as the print directive: "Return to the main menu" is a
+  // sentence, not an instruction to return the value of `to the main menu`.
+  // A routine that ends on prose simply returns nothing.
+  const expr = parseExpression(text);
+  return expr ? evaluate(expr, contextFor(doc, state)) : null;
 }
 
 function capped(state: RunState): RunState {

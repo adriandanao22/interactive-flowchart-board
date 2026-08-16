@@ -54,9 +54,14 @@ Rules:
   ("Yes", "No", "n < 0") carries that text as its label; an unlabelled arrow
   gets "" — never omit the label field.
 - Include loop-back arrows and arrows that merge several paths into one node.
-- For connector pairs, emit both connector nodes and the edges that reach
-  them. Do not invent a direct edge between the two halves. Both halves of a
-  pair carry the same label, which is what links them.
+- For connectors, emit every connector circle you can see as its own node,
+  plus the arrows that reach them. Do not invent a direct edge between
+  connectors — the shared label is what links them, and adding an arrow would
+  contradict the notation.
+- A letter may appear more than twice. Several circles marked "A" scattered
+  around the page, each with an arrow coming in, all resume at the one "A"
+  that has an arrow going out. Transcribe them all; do not merge them into a
+  pair and do not renumber them.
 - Every node except the start must be reachable, and every node except an end
   must have at least one outgoing arrow. If the image genuinely lacks an
   arrow, leave it missing rather than inventing one.

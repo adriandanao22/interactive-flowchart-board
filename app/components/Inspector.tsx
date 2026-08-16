@@ -4,11 +4,14 @@ import { parseStatement } from "@/lib/expr";
 import {
   KIND_INFO,
   NODE_KINDS,
+  TERMINATOR_KINDS,
+  isTerminator,
   type FlowEdgeSpec,
   type FlowNodeSpec,
   type FlowchartSpec,
   type NodeKind,
 } from "@/lib/flowchart";
+import { DEFAULT_LABEL } from "@/lib/layout";
 
 export type Selection =
   | { type: "node"; id: string }
@@ -193,6 +196,41 @@ export function Inspector({
           className="w-full resize-y rounded-md border border-line bg-surface-muted px-2.5 py-1.5 text-sm outline-none focus:border-accent"
         />
       </label>
+
+      {/* A terminator's direction is not a different shape — it is the same
+          stadium at the other end of the chart — so it gets a toggle rather
+          than being buried in a list of eight. */}
+      {isTerminator(node.kind) && (
+        <fieldset className="block text-sm">
+          <legend className="mb-1.5 block font-medium">Which end?</legend>
+          <div className="flex gap-1.5">
+            {TERMINATOR_KINDS.map((kind) => (
+              <label
+                key={kind}
+                className={`flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-md border px-2.5 py-1.5 text-sm font-medium ${
+                  node.kind === kind
+                    ? "border-accent bg-accent/12 text-accent"
+                    : "border-line hover:bg-surface-muted"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name={`terminator-${node.id}`}
+                  className="sr-only"
+                  checked={node.kind === kind}
+                  onChange={() => onRekindNode(node.id, kind)}
+                />
+                {DEFAULT_LABEL[kind]}
+              </label>
+            ))}
+          </div>
+          <span className="mt-1 block text-xs text-muted-fg">
+            The run begins at a {DEFAULT_LABEL.start} and finishes at an{" "}
+            {DEFAULT_LABEL.end}. Switching also renames the shape, unless you
+            have given it a label of your own.
+          </span>
+        </fieldset>
+      )}
 
       <label className="block text-sm">
         <span className="mb-1.5 block font-medium">Shape</span>

@@ -104,12 +104,20 @@ per chart, so selection, the inspector and the palette are only ever in one
 place. The floating routine view has an *Edit* button that hands that routine
 to the canvas.
 
-**Add shapes** — the palette at the top-left of the canvas holds all eight
-kinds. Click one to drop it into the middle of the view, or drag it onto the
-canvas to place it exactly. New shapes arrive with a placeholder label and are
-selected straight away, so the inspector is ready to type into. They start
-unconnected, so the warnings panel will flag them as unreachable dead ends
-until you draw arrows to and from them.
+**Add shapes** — the palette at the top-left of the canvas holds every kind.
+Click one to drop it into the middle of the view, or drag it onto the canvas to
+place it exactly. New shapes arrive with a placeholder label and are selected
+straight away, so the inspector is ready to type into. They start unconnected,
+so the warnings panel will flag them as unreachable dead ends until you draw
+arrows to and from them.
+
+Seven buttons cover eight kinds: **START and END are one entry**, because they
+are the same drawn shape and differ only in which end of the chart they sit at.
+The button adds a `START` to a chart that has none and an `END` after that, and
+a *Which end?* toggle in the sidebar flips a selected terminator either way.
+Flipping also rewrites the label, but only while it is still the untouched
+default — a terminator you have labelled `Return letter` yourself keeps its
+name.
 
 **Inspect** — click a shape for what that notation means, what it looks like in
 code, and everything that flows in and out of it. Click an arrow to edit its
@@ -148,6 +156,30 @@ Opening either shows a banner saying the chart is not yours and nothing is
 being saved. Edits stay local to that tab; your own chart is untouched, and
 autosave is switched off for as long as you are looking at someone else's
 board. *Back to my board* returns to it.
+
+**Comments** — anyone opening a **live** link can leave a comment without an
+account: they type a name, and it goes in the sidebar. Selecting a shape first
+pins the comment to that shape, which then carries a 💬 badge with the count;
+with nothing selected the comment is about the chart as a whole. Everyone with
+the link reads the same thread, so a question gets asked once. You see them all
+on your own board, can delete any of them, and can stop accepting new ones with
+the *Accept new* switch. Deleting a shape does not delete what somebody said
+about it — those comments stay, marked as attached to a shape that has since
+been removed.
+
+Snapshot links have no row behind them, so they cannot carry comments.
+
+**On the security of that**: comments are the only place an unauthenticated
+stranger can write to your database, so the protection is in the schema rather
+than the client. There is no anon policy on the comments table at all — reading
+and posting both go through `security definer` functions that take a share
+token and resolve exactly one chart, so a token is the whole of the
+authorisation and there is no way to enumerate other charts' threads. Inside
+the insert function are the caps that a valid token does not get you past:
+40 characters of name, 2,000 of body, 10 comments per chart per minute, 500 per
+chart in total. Those are caps, not authentication — someone determined who has
+your link can still post rubbish, and the answers to that are *Accept new* off,
+or revoking the link.
 
 ## On a phone
 
@@ -274,13 +306,19 @@ subroutine with no `calls` field is simply stepped over, since its body lives
 outside the document; one naming a routine that is not there is reported as a
 warning. Runaway recursion stops at twelve frames deep.
 
-**Connectors jump.** A connector pair is drawn with no arrow between the two
-halves — that is the whole point of the notation — so the runner treats two
-connectors sharing a label as the same point and continues the trace at the
-matching one. Matching ignores case and surrounding spaces, and a jump is
-marked with `↷` in the path list. A connector with nothing to pair with, or
-three sharing one label, is reported as a warning rather than silently
-mis-traced.
+**Connectors jump.** A connector is drawn with no arrow on one side — that is
+the whole point of the notation — so the runner treats connectors sharing a
+label as the same point and continues the trace at the matching one. Matching
+ignores case and surrounding spaces, and a jump is marked with `↷` in the path
+list.
+
+A label is **not limited to a pair**. Any number of arrows may feed the same
+letter and all resume at one place, which is how a chart merges several paths
+back together without drawing arrows across the page. Within a group, the
+connector that has an arrow *leaving* it is the resume point and every other
+member is a jump source. What gets reported as a warning is a group with no
+resume point, a group with more than one (the run could not tell which to
+continue at), and a connector with no arrows at all — not the group's size.
 
 ## Transcription prompt
 

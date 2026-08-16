@@ -144,6 +144,9 @@ function buildSections(onPreview: (example: GuideExample) => void): Section[] {
           <div className="mt-3">
             <Shape kind="start">
               Where the chart begins and ends. Every chart needs one of each.
+              They are the same shape, so the palette has a single button for
+              both — pick <i>START</i> or <i>END</i> in the sidebar once it is
+              on the board.
             </Shape>
             <Shape kind="process">
               Do something — a calculation, or storing a value.
@@ -163,8 +166,8 @@ function buildSections(onPreview: (example: GuideExample) => void): Section[] {
               Run another whole chart and come back with its answer.
             </Shape>
             <Shape kind="connector">
-              A labelled dot. Two with the same letter are joined, so the chart
-              can jump from one to the other without drawing a long arrow.
+              A labelled dot. Circles sharing a letter are joined, so the chart
+              can jump between them without drawing a long arrow.
             </Shape>
           </div>
           <p className="mt-3">
@@ -304,6 +307,13 @@ function buildSections(onPreview: (example: GuideExample) => void): Section[] {
             the bottom of the screen. The built-in <i>Exam Grader</i> uses one of
             each.
           </p>
+          <p>
+            A letter is not limited to two circles. If three different paths all
+            need to carry on at the same place, mark all three with the same
+            letter — the one circle with an arrow <i>leaving</i> it is where they
+            all resume. That is much easier to read than three long arrows
+            crossing the page to meet at one shape.
+          </p>
         </>
       ),
     },
@@ -389,6 +399,14 @@ function buildSections(onPreview: (example: GuideExample) => void): Section[] {
           <p>
             Either way, whoever opens it can run and edit freely without touching
             your copy — their changes are thrown away when they leave.
+          </p>
+          <p>
+            People opening a live link can also <b>leave comments</b>, with no
+            account — just a name. Clicking a shape first pins the comment to
+            it, and that shape then shows a 💬 badge, so &ldquo;why does this
+            diamond go left?&rdquo; points at the diamond. Everyone with the
+            link sees the same thread. On your own board you can read them all,
+            delete any of them, and switch off new ones.
           </p>
           <p className="text-xs text-muted-fg">
             <i>Copy JSON</i> gives you the chart as text, and <i>Paste JSON</i>{" "}
