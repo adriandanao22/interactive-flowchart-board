@@ -137,6 +137,33 @@ body {
   font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
 }
 
+/* ---- Guide prose ------------------------------------------------------
+ * The guide is the one place in the app with real running text, so it gets
+ * paragraph rhythm rather than every <p> carrying its own margin class.
+ */
+
+.guide-prose > p + p,
+.guide-prose > div + p {
+  margin-top: 0.75rem;
+}
+
+.guide-prose h4 {
+  margin-top: 1.25rem;
+  margin-bottom: 0.25rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.guide-prose b {
+  font-weight: 600;
+}
+
+.guide-prose i {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--accent);
+}
+
 /* ---- React Flow overrides ------------------------------------------- */
 
 .react-flow__attribution {

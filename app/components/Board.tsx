@@ -79,6 +79,7 @@ import { AccountPanel, type SaveState } from "./AccountPanel";
 import { ChartBar } from "./ChartBar";
 import { Console } from "./Console";
 import { FilePanel } from "./FilePanel";
+import { GuidePanel } from "./GuidePanel";
 import { ImportPanel } from "./ImportPanel";
 import { SharePanel } from "./SharePanel";
 import { Inspector, type Selection } from "./Inspector";
@@ -191,6 +192,7 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
   const [chartsLoaded, setChartsLoaded] = useState(false);
   const [chartsError, setChartsError] = useState<string | null>(null);
 
+  const [guideOpen, setGuideOpen] = useState(false);
   const [jsonOpen, setJsonOpen] = useState(false);
   const [jsonSeed, setJsonSeed] = useState("");
   /** Adjustments the parser made to the last import, shown until dismissed. */
@@ -1252,6 +1254,7 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
           setJsonOpen(true);
         }}
         chartId={currentId}
+        onOpenGuide={() => setGuideOpen(true)}
         shareId={shareId}
         onShareIdChange={setShareId}
         saveDirty={saveState.kind === "dirty" || saveState.kind === "saving"}
@@ -1278,6 +1281,19 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
         onDeleteRoutine={deleteRoutine}
         onSetParams={setRoutineParams}
       />
+
+      {guideOpen && (
+        <GuidePanel
+          canAddNew={canAddNew}
+          onLoadExample={(example) => {
+            // Never at the cost of what they already have: signed in, an
+            // example arrives as its own chart.
+            if (canAddNew) void createNewChart(example);
+            else importDoc(example, []);
+          }}
+          onClose={() => setGuideOpen(false)}
+        />
+      )}
 
       {jsonOpen && (
         <JsonImportDialog
@@ -1489,12 +1505,14 @@ function BoardHeader({
   chartId,
   shareId,
   onShareIdChange,
+  onOpenGuide,
   saveDirty,
   visiting,
 }: {
   doc: FlowchartDocument;
   onRelayout: () => void;
   onPasteJson: () => void;
+  onOpenGuide: () => void;
   chartId: string | null;
   shareId: string | null;
   onShareIdChange: (shareId: string | null) => void;
@@ -1519,6 +1537,14 @@ function BoardHeader({
         </span>
       </div>
       <div className="relative flex shrink-0 items-center gap-1.5 md:gap-2">
+        <button
+          type="button"
+          onClick={onOpenGuide}
+          className="min-h-8 rounded-md border border-line px-2.5 py-1 text-xs font-medium hover:bg-surface-muted"
+          title="How to use this board, with worked examples"
+        >
+          <span aria-hidden>?</span><span className="hidden sm:inline"> Guide</span>
+        </button>
         <button
           type="button"
           onClick={onRelayout}

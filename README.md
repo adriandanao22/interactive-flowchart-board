@@ -52,6 +52,15 @@ the schema; it is written to be applied more than once.
 
 ## Using it
 
+**Guide** — the `?` button in the header opens a nine-section how-to written
+for people who have not programmed before: what a flowchart is, what each shape
+means, how to write a label that actually runs, decisions, loops, subroutines,
+and a cheat sheet. Seven worked examples are built in, and each one loads onto
+the board with a click so it can be run and picked apart rather than only read.
+Signed in, an example opens as a new chart, so nothing you have is at risk.
+They live in [lib/guide.ts](lib/guide.ts) and are executed by the test suite —
+an example that stopped working would fail the build, not just look wrong.
+
 **Your charts** — the sidebar lists every chart on the account. Click one to
 open it, *+ New* to start another from a bare start-and-end pair, and the row
 buttons to rename (`✎`), duplicate (`⧉`) or delete (`✕`). A `◈` marks a chart
