@@ -1687,6 +1687,7 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
               onPost={canComment ? addComment : null}
               onDelete={visiting ? null : (id) => void removeComment(id)}
               authorName={!visiting && user ? displayName(user) : null}
+              docked={isMobile}
             />
           )}
           <Background variant={BackgroundVariant.Dots} gap={22} size={1.4} color="var(--canvas-dot)" />

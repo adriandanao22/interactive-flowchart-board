@@ -164,6 +164,18 @@ so what is being discussed stays visible while the discussion is read. The 💬
 pin on the shape opens the same thread, and an uncommented shape shows a faint
 `💬+` to start one.
 
+The card is anchored in the chart's coordinates but sized in screen pixels, so
+it stays welded to its shape through pan and zoom without shrinking with it —
+without that it rendered around 100px wide with five-pixel text when the canvas
+was zoomed out far enough to see the whole chart.
+
+**On a phone the thread docks along the bottom instead**, full width and always
+legible, which is also where the on-screen keyboard expects it. A floating card
+cannot win on a small screen: zoomed out to see the chart it is too small to
+read, and zoomed in to read it, it is off the side. The sheet gives that up in
+exchange for no longer sitting beside the shape, so its header names what it is
+attached to and the pin or outline stays highlighted on the canvas.
+
 Closing a card keeps it closed for that shape, but only that one — click
 another commented shape and its thread opens as usual. Nothing pops up on a
 shape with no comments, so editing your own chart is undisturbed. The card is positioned in flow coordinates, so it stays welded to
