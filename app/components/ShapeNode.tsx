@@ -22,8 +22,6 @@ export interface ShapeNodeData extends Record<string, unknown> {
   runState?: NodeRunState;
   /** Times the trace has entered this node; shown once it exceeds one. */
   visits?: number;
-  /** Comments pinned to this shape, badged so they are findable. */
-  comments?: number;
 }
 
 /** Horizontal room the label has inside each shape. */
@@ -42,7 +40,6 @@ function ShapeNodeImpl({ data, selected }: NodeProps<BoardNode>) {
   const { kind, label, width, height } = data as ShapeNodeData;
   const runState = (data as ShapeNodeData).runState ?? "none";
   const visits = (data as ShapeNodeData).visits ?? 0;
-  const comments = (data as ShapeNodeData).comments ?? 0;
 
   return (
     <div
@@ -117,19 +114,6 @@ function ShapeNodeImpl({ data, selected }: NodeProps<BoardNode>) {
           title={`Entered ${visits} times`}
         >
           {visits}
-        </span>
-      )}
-
-      {/* Opposite corner from the visit badge, so a shape that is both
-          commented on and looped over shows the two without overlapping. */}
-      {comments > 0 && (
-        <span
-          className="absolute -top-2 -right-2 flex h-5 min-w-5 items-center justify-center gap-0.5 rounded-full px-1 text-[10px] font-bold tabular-nums"
-          style={{ background: "var(--surface)", color: "var(--foreground)", border: "1.5px solid var(--accent)" }}
-          title={`${comments} comment${comments === 1 ? "" : "s"} on this shape`}
-        >
-          <span aria-hidden>💬</span>
-          {comments}
         </span>
       )}
     </div>

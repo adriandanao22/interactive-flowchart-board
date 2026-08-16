@@ -404,8 +404,13 @@ function buildSections(onPreview: (example: GuideExample) => void): Section[] {
             People opening a live link can also <b>leave comments</b>, with no
             account — just a name. Clicking a shape first pins the comment to
             it, and that shape then shows a 💬 badge, so &ldquo;why does this
-            diamond go left?&rdquo; points at the diamond. Everyone with the
-            link sees the same thread. On your own board you can read them all,
+            diamond go left?&rdquo; points at the diamond. Click a shape that
+            has comments and they open in a card beside it rather than in the
+            sidebar, so you can read them and look at the shape at once. There
+            is also{" "}
+            <i>Comment on an area</i> at the top-right of the canvas, for
+            outlining a whole section — a loop, say — and commenting on that.
+            Everyone with the link sees the same thread. On your own board you can read them all,
             reply — your replies are badged <i>author</i> — delete any of them,
             and switch off new ones.
           </p>

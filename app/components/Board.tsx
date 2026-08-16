@@ -50,15 +50,15 @@ import {
 import { looksLikeSpec, parseDocument } from "@/lib/parse";
 import { useIsMobile } from "@/lib/useMediaQuery";
 import {
-  commentsByNode,
   deleteComment,
   listOwnComments,
   listSharedComments,
-  pinKey,
   postComment,
   postOwnComment,
   setCommentsEnabled,
+  unanchoredComments,
   type Comment,
+  type Region,
 } from "@/lib/comments";
 import { decodeSnapshot, isShareToken, snapshotFromHash } from "@/lib/share";
 import {
@@ -92,7 +92,9 @@ import { AccountPanel, type SaveState } from "./AccountPanel";
 import { ChartBar } from "./ChartBar";
 import { Console } from "./Console";
 import { FilePanel } from "./FilePanel";
+import { CommentLayer, type Anchor } from "./CommentLayer";
 import { CommentsPanel } from "./CommentsPanel";
+import { RegionOverlay } from "./RegionOverlay";
 import { GuidePanel } from "./GuidePanel";
 import { ImportPanel } from "./ImportPanel";
 import { SharePanel } from "./SharePanel";
@@ -212,6 +214,24 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
   const [commentsError, setCommentsError] = useState<string | null>(null);
   const [commentsLoaded, setCommentsLoaded] = useState(false);
   const [commentsOn, setCommentsOn] = useState(true);
+  /**
+   * The floating thread that is expanded on the canvas, and whether the
+   * area-outlining overlay is up.
+   *
+   * Both are stamped with the chart they belong to rather than being cleared
+   * by an effect when it changes. A thread is anchored to a shape or an area
+   * of one particular chart, so outside that chart it is simply not active —
+   * deriving that beats synchronising it, which would cost a second render
+   * pass and could flash the wrong card first.
+   */
+  const [openThread, setOpenThread] = useState<{
+    scope: string;
+    /** Null records a card the reader deliberately closed. */
+    anchor: Anchor | null;
+    /** Selection at the time, so the override goes stale when it moves. */
+    forNode: string | null;
+  } | null>(null);
+  const [outliningScope, setOutliningScope] = useState<string | null>(null);
 
   const [guideOpen, setGuideOpen] = useState(false);
   const [jsonOpen, setJsonOpen] = useState(false);
@@ -822,9 +842,9 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
    * comments arrive in the same trip.
    */
   const addComment = useCallback(
-    async (body: string, author: string, nodeId: string | null) => {
+    async (body: string, author: string, nodeId: string | null, region: Region | null = null) => {
       if (visiting?.kind === "live") {
-        const failed = await postComment(visiting.token, author, body, nodeId, editingKey);
+        const failed = await postComment(visiting.token, author, body, nodeId, editingKey, region);
         if (failed) return failed;
         const result = await listSharedComments(visiting.token);
         setComments(result.comments);
@@ -833,7 +853,9 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
       }
 
       if (!visiting && user && currentId) {
-        const failed = await postOwnComment(currentId, user.id, author, body, nodeId, editingKey);
+        const failed = await postOwnComment(
+          currentId, user.id, author, body, nodeId, editingKey, region,
+        );
         if (failed) return failed;
         const result = await listOwnComments(currentId);
         setComments(result.comments);
@@ -854,6 +876,17 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
     }
     setComments((prev) => prev.filter((c) => c.id !== id));
   }, []);
+
+  /**
+   * Whether comments exist for this board at all, and whether this viewer may
+   * add one. A snapshot link has no row behind it, so neither applies.
+   */
+  const commentingAllowed = visiting?.kind === "live" || Boolean(currentId && !visiting);
+  const canComment = visiting?.kind === "live" || Boolean(!visiting && user && currentId);
+
+  /** Identifies the chart on the canvas, main or routine, shared or owned. */
+  const threadScope = `${currentId ?? visiting?.kind ?? ""}|${editingKey ?? ""}`;
+  const outlining = outliningScope === threadScope;
 
   /** Label a comment's pinned shape, or null once that shape is gone. */
   const labelForPin = useCallback(
@@ -1138,7 +1171,6 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
     for (const id of waitingNodeIds(run, editingKey)) states.set(id, "waiting");
     if (run.currentId && run.chartKey === editingKey) states.set(run.currentId, "current");
     const counts = visitCounts(run, editingKey);
-    const pins = commentsByNode(comments);
 
     return nodes.map((node) => ({
       ...node,
@@ -1146,10 +1178,9 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
         ...node.data,
         runState: states.get(node.id) ?? "none",
         visits: counts.get(node.id) ?? 0,
-        comments: pins.get(pinKey(editingKey, node.id))?.length ?? 0,
       },
     }));
-  }, [nodes, run, editingKey, comments]);
+  }, [nodes, run, editingKey]);
 
   const displayEdges = useMemo(() => {
     const taken = takenEdgeIds(run, editingKey);
@@ -1195,6 +1226,50 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
   const selectedEdge = useMemo(
     () => (selection?.type === "edge" ? (spec.edges.find((e) => e.id === selection.id) ?? null) : null),
     [selection, spec.edges],
+  );
+
+  // ---- which comment thread is on screen -------------------------------
+
+  /**
+   * Clicking a shape that has comments opens them beside it.
+   *
+   * Derived from the selection rather than pushed into state by an effect, so
+   * there is no second render pass and no flash of the previous card. An
+   * explicit action — clicking a pin, or closing a card — overrides that, but
+   * only while the selection stays put: move to another shape and the
+   * override is stale, so its own thread takes over. Without that, closing one
+   * card would keep every later shape's thread shut.
+   */
+  const selectedId = selectedNode?.id ?? null;
+  const selectionHasComments =
+    selectedId !== null &&
+    comments.some((c) => c.nodeId === selectedId && (c.chartKey ?? null) === editingKey);
+
+  const autoThread: Anchor | null =
+    selectedId && selectionHasComments ? { kind: "node", nodeId: selectedId } : null;
+
+  const overrideApplies =
+    openThread?.scope === threadScope &&
+    // A half-written comment on a freshly outlined area is deliberate work;
+    // it should not evaporate because a shape was clicked.
+    (openThread.anchor?.kind === "draft" || openThread.forNode === selectedId);
+
+  const activeThread = overrideApplies ? openThread!.anchor : autoThread;
+
+  const showThread = useCallback(
+    (anchor: Anchor | null) =>
+      setOpenThread({ scope: threadScope, anchor, forNode: selectedId }),
+    [threadScope, selectedId],
+  );
+
+  /**
+   * The sidebar carries only what the canvas cannot: comments on the chart as
+   * a whole, on another routine, or on a shape that has since been deleted.
+   * Anything pinned to a visible shape or area is read where it is anchored.
+   */
+  const sidebarComments = useMemo(
+    () => unanchoredComments(comments, editingKey, new Set(spec.nodes.map((n) => n.id))),
+    [comments, editingKey, spec.nodes],
   );
 
   const labelOf = useCallback(
@@ -1357,12 +1432,10 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
         defaultOpen={false}
       >
         <CommentsPanel
-          comments={comments}
+          comments={sidebarComments}
+          pinnedElsewhere={comments.length - sidebarComments.length}
           loading={!commentsLoaded}
           error={commentsError}
-          selectedNodeId={selectedNode?.id ?? null}
-          selectedNodeLabel={selectedNode?.label ?? null}
-          chartKey={editingKey}
           labelFor={labelForPin}
           onPost={visiting?.kind === "live" || (!visiting && user) ? addComment : null}
           authorName={!visiting && user ? displayName(user) : null}
@@ -1588,6 +1661,34 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
               </div>
             </Panel>
           )}
+          {canComment && (
+            <Panel position="top-right" className="!m-3">
+              <button
+                type="button"
+                onClick={() => {
+                  showThread(null);
+                  setOutliningScope(threadScope);
+                }}
+                className="min-h-9 rounded-lg border border-line bg-surface px-3 py-1.5 text-xs font-medium shadow-md hover:bg-surface-muted"
+                title="Outline part of the chart and comment on it"
+              >
+                <span aria-hidden>▧</span> Comment on an area
+              </button>
+            </Panel>
+          )}
+          {commentingAllowed && (
+            <CommentLayer
+              comments={comments}
+              nodes={nodes}
+              chartKey={editingKey}
+              selectedNodeId={selectedNode?.id ?? null}
+              open={activeThread}
+              onOpen={showThread}
+              onPost={canComment ? addComment : null}
+              onDelete={visiting ? null : (id) => void removeComment(id)}
+              authorName={!visiting && user ? displayName(user) : null}
+            />
+          )}
           <Background variant={BackgroundVariant.Dots} gap={22} size={1.4} color="var(--canvas-dot)" />
           {/* Pinch and drag cover these on touch, and they crowd a small canvas. */}
           <Controls showInteractive={false} className="!hidden md:!flex" />
@@ -1599,6 +1700,17 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
             maskColor="color-mix(in srgb, var(--canvas) 72%, transparent)"
           />
         </ReactFlow>
+
+        {outlining && (
+          <RegionOverlay
+            toFlow={(point) => screenToFlowPosition(point)}
+            onCancel={() => setOutliningScope(null)}
+            onDone={(region) => {
+              setOutliningScope(null);
+              showThread({ kind: "draft", region });
+            }}
+          />
+        )}
 
         {(run.output.length > 0 || run.status !== "idle") && (
           <Console

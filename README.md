@@ -157,13 +157,43 @@ being saved. Edits stay local to that tab; your own chart is untouched, and
 autosave is switched off for as long as you are looking at someone else's
 board. *Back to my board* returns to it.
 
-**Comments** — anyone opening a **live** link can leave a comment without an
-account: they type a name, and it goes in the sidebar. Selecting a shape first
-pins the comment to that shape, which then carries a 💬 badge with the count;
-with nothing selected the comment is about the chart as a whole. Everyone with
-the link reads the same thread, so a question gets asked once. Deleting a shape
-does not delete what somebody said about it — those comments stay, marked as
-attached to a shape that has since been removed.
+**Comments** — anyone opening a **live** link can leave one without an account;
+they type a name. Threads live *on the canvas*, not buried in the sidebar:
+**clicking a shape that has comments opens them in a card floating beside it**,
+so what is being discussed stays visible while the discussion is read. The 💬
+pin on the shape opens the same thread, and an uncommented shape shows a faint
+`💬+` to start one.
+
+Closing a card keeps it closed for that shape, but only that one — click
+another commented shape and its thread opens as usual. Nothing pops up on a
+shape with no comments, so editing your own chart is undisturbed. The card is positioned in flow coordinates, so it stays welded to
+its anchor through pan and zoom, and flips to the other side when the shape is
+near the edge of the pane rather than running off it.
+
+**Comment on an area** — the button at the top-right of the canvas outlines
+part of the chart instead of one shape, for *"this whole retry loop confused
+me"*. Drag across the region, nudge it or drag the corner handle to adjust,
+then write the comment. The outline is stored in flow coordinates and drawn on
+the chart with its own pin.
+
+This works the same under a finger as under a mouse. It is a modal overlay that
+owns the gesture with pointer events, rather than React Flow's own drag-select
+— that needs `panOnDrag` off, which makes React Flow reject `touchstart`
+outright and would take panning and pinch-zoom with it. Because the tool is
+modal and one tap to leave, suspending panning inside it is acceptable; making
+it the default would not have been. The corner handle is 28px, sized for a
+fingertip.
+
+Everyone with the link reads the same thread, so a question gets asked once.
+
+The sidebar section carries only what the canvas cannot show, so nothing is
+said twice: comments on the chart as a whole, comments on another routine while
+this one is open, and comments whose shape has since been deleted. That last
+one is why the list cannot simply drop everything pinned — deleting a shape
+does not delete what somebody said about it, and without a home in the sidebar
+those comments would be invisible and impossible to remove. Writing in the
+sidebar posts about the chart as a whole; to ask about one shape or area, click
+it on the canvas and write there.
 
 You can post too, on any chart you own. Your name comes from your account
 rather than a text box, and your comments are badged **author** so a reader can

@@ -14,14 +14,12 @@ import { useNow } from "@/lib/useNow";
 import { useStored } from "@/lib/useStored";
 
 interface Props {
+  /** Only the ones the canvas cannot show — see `unanchoredComments`. */
   comments: Comment[];
+  /** How many are on the canvas instead, so an empty list can say so. */
+  pinnedElsewhere: number;
   loading: boolean;
   error: string | null;
-  /** Shape the canvas has selected, so its thread comes to the top. */
-  selectedNodeId: string | null;
-  selectedNodeLabel: string | null;
-  /** Which chart of the document is on the canvas. */
-  chartKey: string | null;
   /** Label lookup for showing what a comment is pinned to. */
   labelFor: (chartKey: string | null, nodeId: string) => string | null;
   /** Null when this viewer cannot post at all. */
@@ -41,11 +39,9 @@ interface Props {
 
 export function CommentsPanel({
   comments,
+  pinnedElsewhere,
   loading,
   error,
-  selectedNodeId,
-  selectedNodeLabel,
-  chartKey,
   labelFor,
   onPost,
   onDelete,
@@ -66,10 +62,6 @@ export function CommentsPanel({
   // impure or the sidebar re-render every second.
   const now = useNow();
 
-  const pinned = selectedNodeId
-    ? comments.filter((c) => c.nodeId === selectedNodeId && (c.chartKey ?? null) === chartKey)
-    : [];
-  const rest = comments.filter((c) => !pinned.includes(c));
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -83,7 +75,9 @@ export function CommentsPanel({
 
     setBusy(true);
     setProblem(null);
-    const failed = await onPost(body, author, selectedNodeId);
+    // Always unpinned: an anchored comment is written on the canvas, beside
+    // the shape or area it is about.
+    const failed = await onPost(body, author, null);
     setBusy(false);
     if (failed) {
       setProblem(failed);
@@ -116,29 +110,23 @@ export function CommentsPanel({
 
       {!loading && comments.length === 0 && !error && (
         <p className="text-xs leading-relaxed text-muted-fg">
-          {isOwner
-            ? "Nothing yet. Leave yourself a note on any shape, and anything people say through your share link turns up here too."
-            : onPost
-              ? "Nothing yet. Click a shape to ask about it, or leave a note about the chart as a whole."
-              : "No comments yet."}
+          {/* Comments pinned to a shape or an area live on the canvas now, so
+              an empty list here does not mean an empty chart. Say which is
+              which rather than implying nobody has said anything. */}
+          {pinnedElsewhere > 0
+            ? `${pinnedElsewhere} comment${pinnedElsewhere === 1 ? "" : "s"} on this chart, all attached to a shape or an area — click one to read it.`
+            : isOwner
+              ? "Nothing yet. Click a shape to leave yourself a note on it, and anything people say through your share link turns up here too."
+              : onPost
+                ? "Nothing yet. Click a shape to ask about it, or write below to ask about the chart as a whole."
+                : "No comments yet."}
         </p>
       )}
 
       <div className="max-h-72 min-h-0 space-y-3 overflow-y-auto">
-        {pinned.length > 0 && (
+        {comments.length > 0 && (
           <Thread
-            heading={`On “${selectedNodeLabel ?? selectedNodeId}”`}
-            comments={pinned}
-            now={now}
-            labelFor={labelFor}
-            showPin={false}
-            onDelete={onDelete}
-          />
-        )}
-        {rest.length > 0 && (
-          <Thread
-            heading={pinned.length > 0 ? "Everything else" : undefined}
-            comments={rest}
+            comments={comments}
             now={now}
             labelFor={labelFor}
             showPin
@@ -150,14 +138,8 @@ export function CommentsPanel({
       {onPost && (
         <form className="mt-1 shrink-0 space-y-1.5 border-t border-line pt-2.5" onSubmit={submit}>
           <p className="text-[11px] text-muted-fg">
-            {selectedNodeId ? (
-              <>
-                Asking about <b>{selectedNodeLabel ?? selectedNodeId}</b>. Click
-                an empty part of the canvas to ask about the chart instead.
-              </>
-            ) : (
-              <>About the whole chart. Click a shape to pin your question to it.</>
-            )}
+            About the chart as a whole. To ask about one shape or one area,
+            click it on the canvas and write there instead.
           </p>
           {!isOwner && (
             <input

@@ -151,6 +151,10 @@ create table if not exists public.chart_comments (
   -- whole thing.
   node_id    text,
   chart_key  text,
+  -- An outlined area of the canvas, in flow coordinates: {x, y, w, h}. Set
+  -- instead of node_id when the comment is about a region rather than one
+  -- shape — "this whole retry loop is confusing".
+  region     jsonb,
   author     text        not null,
   body       text        not null,
   created_at timestamptz not null default now(),
@@ -158,12 +162,23 @@ create table if not exists public.chart_comments (
   constraint chart_comments_author_len  check (char_length(author) between 1 and 40),
   constraint chart_comments_body_len    check (char_length(body) between 1 and 2000),
   constraint chart_comments_node_len    check (node_id is null or char_length(node_id) <= 64),
-  constraint chart_comments_key_len     check (chart_key is null or char_length(chart_key) <= 64)
+  constraint chart_comments_key_len     check (chart_key is null or char_length(chart_key) <= 64),
+  -- A comment is about one shape, or one area, or the chart as a whole —
+  -- never a shape and an area at once, which would have no sensible anchor.
+  constraint chart_comments_one_anchor  check (node_id is null or region is null),
+  constraint chart_comments_region_shape check (
+    region is null or (
+      jsonb_typeof(region -> 'x') = 'number' and jsonb_typeof(region -> 'y') = 'number' and
+      jsonb_typeof(region -> 'w') = 'number' and jsonb_typeof(region -> 'h') = 'number' and
+      (region ->> 'w')::numeric > 0 and (region ->> 'h')::numeric > 0
+    )
+  )
 );
 
--- For a table created before author comments existed.
+-- For a table created before author comments or region comments existed.
 alter table public.chart_comments
   add column if not exists user_id uuid references auth.users (id) on delete set null;
+alter table public.chart_comments add column if not exists region jsonb;
 
 create index if not exists chart_comments_chart_idx
   on public.chart_comments (chart_id, created_at);
@@ -216,10 +231,11 @@ create policy "delete comments on own charts" on public.chart_comments
 -- replies came from the person who made the chart, and nothing more. Handing
 -- out the owner's account id would be a needless leak.
 drop function if exists public.shared_comments(uuid);
+drop function if exists public.add_shared_comment(uuid, text, text, text, text);
 
 create or replace function public.shared_comments(token uuid)
 returns table (
-  id uuid, node_id text, chart_key text, author text, body text,
+  id uuid, node_id text, chart_key text, region jsonb, author text, body text,
   created_at timestamptz, from_author boolean
 )
 language sql
@@ -227,7 +243,7 @@ security definer
 set search_path = public
 stable
 as $$
-  select c.id, c.node_id, c.chart_key, c.author, c.body, c.created_at,
+  select c.id, c.node_id, c.chart_key, c.region, c.author, c.body, c.created_at,
          c.user_id is not null as from_author
     from public.chart_comments c
     join public.flowcharts f on f.id = c.chart_id
@@ -245,7 +261,8 @@ create or replace function public.add_shared_comment(
   in_author text,
   in_body   text,
   in_node   text default null,
-  in_key    text default null
+  in_key    text default null,
+  in_region jsonb default null
 )
 returns uuid
 language plpgsql
@@ -282,8 +299,11 @@ begin
     raise exception 'This chart has reached its comment limit.' using errcode = 'P0001';
   end if;
 
-  insert into public.chart_comments (chart_id, node_id, chart_key, author, body)
-  values (target, nullif(in_node, ''), nullif(in_key, ''), btrim(in_author), btrim(in_body))
+  insert into public.chart_comments (chart_id, node_id, chart_key, region, author, body)
+  values (target, nullif(in_node, ''), nullif(in_key, ''),
+          -- A region and a shape cannot both anchor one comment.
+          case when in_node is null or in_node = '' then in_region else null end,
+          btrim(in_author), btrim(in_body))
   returning id into new_id;
 
   return new_id;
@@ -291,9 +311,9 @@ end;
 $$;
 
 revoke all on function public.shared_comments(uuid) from public;
-revoke all on function public.add_shared_comment(uuid, text, text, text, text) from public;
+revoke all on function public.add_shared_comment(uuid, text, text, text, text, jsonb) from public;
 grant execute on function public.shared_comments(uuid) to anon, authenticated;
-grant execute on function public.add_shared_comment(uuid, text, text, text, text) to anon, authenticated;
+grant execute on function public.add_shared_comment(uuid, text, text, text, text, jsonb) to anon, authenticated;
 
 -- Keep updated_at honest even if a client forgets to set it.
 create or replace function public.touch_updated_at()
