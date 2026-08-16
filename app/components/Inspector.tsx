@@ -135,58 +135,6 @@ export function Inspector({
         <p className="mt-2 text-xs text-muted-fg">Drawn as a {info.shape.toLowerCase()}.</p>
       </div>
 
-      <p className="text-sm leading-relaxed">{info.blurb}</p>
-
-      <div className="rounded-md border border-line bg-surface-muted px-3 py-2">
-        <p className="text-[11px] font-semibold tracking-wider text-muted-fg uppercase">
-          In code
-        </p>
-        <code className="font-mono text-xs">{info.example}</code>
-      </div>
-
-      <CodeField node={node} onSetExpr={onSetExpr} />
-
-      {node.kind === "subroutine" && (
-        <div className="space-y-1.5">
-          <label className="block text-sm">
-            <span className="mb-1.5 block font-medium">Calls</span>
-            <select
-              value={node.calls ?? ""}
-              onChange={(event) => onSetCalls(node.id, event.target.value)}
-              className="w-full rounded-md border border-line bg-surface-muted px-2.5 py-1.5 text-sm outline-none focus:border-accent"
-            >
-              <option value="">
-                {resolvedCallee ? `From the code — ${resolvedCallee}` : "Not linked"}
-              </option>
-              {Object.entries(routines).map(([key, routine]) => (
-                <option key={key} value={key}>
-                  {routine.title || key} ({key})
-                </option>
-              ))}
-            </select>
-          </label>
-          <p className="rounded-md border border-line bg-surface-muted px-3 py-2 text-xs leading-relaxed">
-            {resolvedCallee ? (
-              <>
-                Steps into <code className="font-mono">{resolvedCallee}</code> and comes back here
-                when it ends.
-              </>
-            ) : Object.keys(routines).length === 0 ? (
-              <>
-                No routines in this document yet. Add one with{" "}
-                <span className="font-medium">+ Routine</span> in the bar above the canvas, then
-                pick it here.
-              </>
-            ) : (
-              <>
-                Not linked, so the trace steps straight over this shape. Pick a routine above, or
-                write a call like <code className="font-mono">validate(limit)</code> in Code.
-              </>
-            )}
-          </p>
-        </div>
-      )}
-
       <label className="block text-sm">
         <span className="mb-1.5 block font-medium">Label</span>
         <textarea
@@ -249,6 +197,63 @@ export function Inspector({
           Change this if the image was read wrong.
         </span>
       </label>
+
+      {/* Teaching copy sits below the controls. It is worth reading once; the
+          label and shape pickers are worth reaching every time, and burying
+          them under a paragraph put the shape picker off the bottom of the
+          sidebar entirely. */}
+      <div>
+        <p className="text-sm leading-relaxed">{info.blurb}</p>
+        <div className="mt-2 rounded-md border border-line bg-surface-muted px-3 py-2">
+          <p className="text-[11px] font-semibold tracking-wider text-muted-fg uppercase">
+            In code
+          </p>
+          <code className="font-mono text-xs">{info.example}</code>
+        </div>
+      </div>
+
+      <CodeField node={node} onSetExpr={onSetExpr} />
+
+      {node.kind === "subroutine" && (
+        <div className="space-y-1.5">
+          <label className="block text-sm">
+            <span className="mb-1.5 block font-medium">Calls</span>
+            <select
+              value={node.calls ?? ""}
+              onChange={(event) => onSetCalls(node.id, event.target.value)}
+              className="w-full rounded-md border border-line bg-surface-muted px-2.5 py-1.5 text-sm outline-none focus:border-accent"
+            >
+              <option value="">
+                {resolvedCallee ? `From the code — ${resolvedCallee}` : "Not linked"}
+              </option>
+              {Object.entries(routines).map(([key, routine]) => (
+                <option key={key} value={key}>
+                  {routine.title || key} ({key})
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="rounded-md border border-line bg-surface-muted px-3 py-2 text-xs leading-relaxed">
+            {resolvedCallee ? (
+              <>
+                Steps into <code className="font-mono">{resolvedCallee}</code> and comes back here
+                when it ends.
+              </>
+            ) : Object.keys(routines).length === 0 ? (
+              <>
+                No routines in this document yet. Add one with{" "}
+                <span className="font-medium">+ Routine</span> in the bar above the canvas, then
+                pick it here.
+              </>
+            ) : (
+              <>
+                Not linked, so the trace steps straight over this shape. Pick a routine above, or
+                write a call like <code className="font-mono">validate(limit)</code> in Code.
+              </>
+            )}
+          </p>
+        </div>
+      )}
 
       <div className="text-sm">
         <p className="mb-1.5 font-medium">Connections</p>

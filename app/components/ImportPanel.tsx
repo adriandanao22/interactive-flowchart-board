@@ -12,12 +12,9 @@ interface Props {
  */
 export function ImportPanel({ onLoadSample, onPasteJson }: Props) {
   return (
-    <div className="flex shrink-0 flex-col gap-3 p-5">
+    <div className="flex shrink-0 flex-col gap-3 px-5 pb-3">
       <div>
-        <p className="text-[11px] font-semibold tracking-wider text-muted-fg uppercase">
-          Load a chart
-        </p>
-        <p className="mt-1 text-xs leading-relaxed text-muted-fg">
+        <p className="text-xs leading-relaxed text-muted-fg">
           Paste flowchart JSON anywhere on the page (<kbd className="font-mono">Ctrl</kbd>+
           <kbd className="font-mono">V</kbd>), or use the button below. To turn a picture into
           JSON, run it through a chat model with the prompt in{" "}

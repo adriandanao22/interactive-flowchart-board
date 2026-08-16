@@ -96,6 +96,7 @@ import { CommentsPanel } from "./CommentsPanel";
 import { GuidePanel } from "./GuidePanel";
 import { ImportPanel } from "./ImportPanel";
 import { SharePanel } from "./SharePanel";
+import { SidebarSection } from "./SidebarSection";
 import { Inspector, type Selection } from "./Inspector";
 import { MobileSheet, type SheetTab } from "./MobileSheet";
 import { JsonImportDialog } from "./JsonImportDialog";
@@ -1279,21 +1280,37 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
       {/* No file list while visiting: those charts are not loaded, and the
           banner already offers the way back to them. */}
       {user && !visiting && (
-        <FilePanel
-          charts={charts}
-          currentId={currentId}
-          loading={!chartsLoaded}
-          error={chartsError}
-          onOpen={(id) => void openChart(id)}
-          onCreate={() => void createNewChart()}
-          onRename={(id, name) => void renameCurrent(id, name)}
-          onDuplicate={(id) => void duplicateChart(id)}
-          onDelete={(id) => void removeChart(id)}
-        />
+        <SidebarSection
+          id="files"
+          title="Your charts"
+          badge={charts.length || null}
+          action={
+            <button
+              type="button"
+              onClick={() => void createNewChart()}
+              className="rounded-md border border-line px-2 py-0.5 text-xs font-medium hover:bg-surface-muted"
+              title="Start a new chart"
+            >
+              + New
+            </button>
+          }
+        >
+          <FilePanel
+            charts={charts}
+            currentId={currentId}
+            loading={!chartsLoaded}
+            error={chartsError}
+            onOpen={(id) => void openChart(id)}
+            onRename={(id, name) => void renameCurrent(id, name)}
+            onDuplicate={(id) => void duplicateChart(id)}
+            onDelete={(id) => void removeChart(id)}
+          />
+        </SidebarSection>
       )}
     </>
   );
   const importPanel = (
+    <SidebarSection id="import" title="Load a chart" defaultOpen={false}>
     <ImportPanel
       onLoadSample={() => applyDoc(SAMPLE_DOC)}
       onPasteJson={() => {
@@ -1301,6 +1318,7 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
         setJsonOpen(true);
       }}
     />
+    </SidebarSection>
   );
   const repairsNotice =
     repairs.length > 0 ? (
@@ -1332,7 +1350,12 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
    */
   const commentsPanel =
     visiting?.kind === "live" || (currentId && !visiting) ? (
-      <div className="shrink-0 border-t border-line">
+      <SidebarSection
+        id="comments"
+        title="Comments"
+        badge={comments.length || null}
+        defaultOpen={false}
+      >
         <CommentsPanel
           comments={comments}
           loading={!commentsLoaded}
@@ -1356,7 +1379,7 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
                 }
           }
         />
-      </div>
+      </SidebarSection>
     ) : null;
 
   const inspectorPanel = (
@@ -1385,6 +1408,7 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
     </div>
   );
   const runPanelNode = (
+    <SidebarSection id="run" title="Trace execution">
     <RunPanel
       doc={doc}
       run={run}
@@ -1397,6 +1421,7 @@ function BoardInner({ shareToken }: { shareToken?: string }) {
       onSupplyInput={doSupplyInput}
       onFocusNode={focusNode}
     />
+    </SidebarSection>
   );
 
   // ---- render ----------------------------------------------------------

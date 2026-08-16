@@ -10,7 +10,6 @@ interface Props {
   loading: boolean;
   error: string | null;
   onOpen: (id: string) => void;
-  onCreate: () => void;
   onRename: (id: string, name: string) => void;
   onDuplicate: (id: string) => void;
   onDelete: (id: string) => void;
@@ -29,7 +28,6 @@ export function FilePanel({
   loading,
   error,
   onOpen,
-  onCreate,
   onRename,
   onDuplicate,
   onDelete,
@@ -49,21 +47,7 @@ export function FilePanel({
   }
 
   return (
-    <div className="shrink-0 border-b border-line px-5 py-3">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-[11px] font-semibold tracking-wider text-muted-fg uppercase">
-          Your charts
-        </p>
-        <button
-          type="button"
-          onClick={onCreate}
-          className="shrink-0 rounded-md border border-line px-2 py-0.5 text-xs font-medium hover:bg-surface-muted"
-          title="Start a new chart"
-        >
-          + New
-        </button>
-      </div>
-
+    <div className="shrink-0 px-5 pb-2">
       {error && (
         <p className="mt-1.5 rounded-md border border-danger/40 bg-danger/10 px-2.5 py-1.5 text-[11px] leading-relaxed text-danger">
           {error}
@@ -71,18 +55,18 @@ export function FilePanel({
       )}
 
       {loading && charts.length === 0 && (
-        <p className="mt-1.5 text-xs text-muted-fg">Loading…</p>
+        <p className="text-xs text-muted-fg">Loading…</p>
       )}
 
       {!loading && charts.length === 0 && !error && (
-        <p className="mt-1.5 text-xs leading-relaxed text-muted-fg">
+        <p className="text-xs leading-relaxed text-muted-fg">
           Nothing saved yet. The board you are looking at becomes your first
           chart as soon as you edit it.
         </p>
       )}
 
       {/* Capped so a long list cannot push the inspector off the sidebar. */}
-      <ul className="mt-1.5 max-h-56 space-y-0.5 overflow-y-auto">
+      <ul className="max-h-56 space-y-0.5 overflow-y-auto">
         {charts.map((chart) => {
           const active = chart.id === currentId;
           return (

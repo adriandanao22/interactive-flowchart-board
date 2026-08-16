@@ -94,22 +94,17 @@ export function CommentsPanel({
   }
 
   return (
-    <div className="flex min-h-0 flex-col gap-2.5 p-5">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-[11px] font-semibold tracking-wider text-muted-fg uppercase">
-          Comments{comments.length > 0 && ` (${comments.length})`}
-        </p>
-        {onToggleEnabled && (
-          <label className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted-fg">
-            <input
-              type="checkbox"
-              checked={commentsEnabled ?? true}
-              onChange={(event) => onToggleEnabled(event.target.checked)}
-            />
-            Accept new
-          </label>
-        )}
-      </div>
+    <div className="flex min-h-0 flex-col gap-2.5 px-5 pb-3">
+      {onToggleEnabled && (
+        <label className="flex items-center gap-1.5 text-[11px] text-muted-fg">
+          <input
+            type="checkbox"
+            checked={commentsEnabled ?? true}
+            onChange={(event) => onToggleEnabled(event.target.checked)}
+          />
+          Accept new comments
+        </label>
+      )}
 
       {error && (
         <p className="rounded-md border border-danger/40 bg-danger/10 px-2.5 py-1.5 text-[11px] leading-relaxed text-danger">
@@ -129,7 +124,7 @@ export function CommentsPanel({
         </p>
       )}
 
-      <div className="min-h-0 space-y-3 overflow-y-auto">
+      <div className="max-h-72 min-h-0 space-y-3 overflow-y-auto">
         {pinned.length > 0 && (
           <Thread
             heading={`On “${selectedNodeLabel ?? selectedNodeId}”`}

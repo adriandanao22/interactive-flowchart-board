@@ -46,15 +46,10 @@ export function RunPanel({
   return (
     // shrink-0: without it this panel is compressed below its content height
     // as the trace grows, and the text spills over the panels above.
-    <div className="flex shrink-0 flex-col gap-3 border-t border-line p-5">
-      <div className="flex items-center justify-between">
-        <p className="text-[11px] font-semibold tracking-wider text-muted-fg uppercase">
-          Trace execution
-        </p>
-        <span className="font-mono text-[11px] tabular-nums text-muted-fg">
-          step {run.steps}
-        </span>
-      </div>
+    <div className="flex shrink-0 flex-col gap-3 px-5 pb-3">
+      <span className="font-mono text-[11px] tabular-nums text-muted-fg">
+        step {run.steps}
+      </span>
 
       <div className="flex gap-2">
         <button
